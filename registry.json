@@ -1,0 +1,9 @@
+{
+  "name": "yt-dlp 音乐导入",
+  "includes": [
+    "https://raw.githubusercontent.com/songloft-org/songloft-plugin-registry/main/registry.json"
+  ],
+  "plugins": [
+    "https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/plugin.json"
+  ]
+}
