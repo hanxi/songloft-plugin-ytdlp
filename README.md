@@ -14,6 +14,14 @@ Songloft JS 插件 — 通过 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 从 You
 
 在 Songloft 插件管理页面安装，或手动下载 [Releases](../../releases) 中的 `.jsplugin.zip` 文件。
 
+### 插件源地址
+
+```
+https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
+```
+
+在 Songloft 设置 → JS 插件 → 插件源中添加上述地址即可自动获取更新。
+
 ## 使用
 
 1. 在插件设置页安装 yt-dlp 二进制（自动下载对应平台版本）
