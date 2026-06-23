@@ -228,7 +228,9 @@
 
 .text-field {
     flex: 1;
-    padding: 10px 12px;
+    height: 36px;
+    margin: 0;
+    padding: 0 12px;
     border: 1px solid var(--md-outline);
     border-radius: var(--md-radius-sm);
     font-family: inherit;
@@ -237,6 +239,8 @@
     background: transparent;
     outline: none;
     transition: border-color .2s;
+    box-sizing: border-box;
+    position: static;
 }
 
 .text-field:focus { border-color: var(--md-primary); }
