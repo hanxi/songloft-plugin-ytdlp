@@ -1,0 +1,17 @@
+{
+  "name": "songloft-plugin-ytdlp",
+  "version": "2026.6.23",
+  "description": "通过 yt-dlp 从 YouTube、Bilibili 等平台导入歌单",
+  "private": true,
+  "scripts": {
+    "build": "songloft-plugin build",
+    "dev": "songloft-plugin dev",
+    "validate": "songloft-plugin validate",
+    "publish:release": "songloft-plugin publish"
+  },
+  "devDependencies": {
+    "@songloft/plugin-builder": "^2.6.1",
+    "@songloft/plugin-sdk": "^2.6.1",
+    "typescript": "^5.7.0"
+  }
+}

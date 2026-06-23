@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yt-dlp 音乐导入</title>
+    <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+<!-- App Bar -->
+<div class="app-bar">
+    <h1>yt-dlp 音乐导入</h1>
+</div>
+
+<!-- Tab 1: 导入 -->
+<div class="tab-content active" id="tab-import">
+    <div class="container">
+
+        <!-- URL 输入卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">link</span>
+                <span class="card-title">导入歌曲</span>
+            </div>
+            <div class="card-body">
+                <div class="input-group">
+                    <input type="text" id="input-url" class="text-field" placeholder="输入 YouTube、Bilibili 等平台的歌单或视频链接">
+                    <button id="btn-extract" class="btn-filled">
+                        <span class="material-symbols-outlined">search</span>
+                        提取
+                    </button>
+                </div>
+                <div id="extract-progress" class="progress-linear hidden">
+                    <div class="progress-linear-fill indeterminate"></div>
+                </div>
+                <div id="extract-error" class="error-text hidden"></div>
+            </div>
+        </div>
+
+        <!-- 提取结果卡片 -->
+        <div id="result-card" class="card hidden">
+            <div class="card-header">
+                <span class="material-symbols-outlined">queue_music</span>
+                <span class="card-title">提取结果</span>
+                <span id="result-count" class="badge">0</span>
+            </div>
+            <div class="card-body">
+                <div class="result-toolbar">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="check-all" checked>
+                        <span>全选</span>
+                    </label>
+                    <span id="selected-count" class="info-label">已选 0 首</span>
+                </div>
+                <div id="result-list" class="song-list"></div>
+            </div>
+        </div>
+
+        <!-- 导入选项卡片 -->
+        <div id="import-card" class="card hidden">
+            <div class="card-header">
+                <span class="material-symbols-outlined">playlist_add</span>
+                <span class="card-title">导入选项</span>
+            </div>
+            <div class="card-body">
+                <div class="input-group">
+                    <input type="text" id="input-playlist-name" class="text-field" placeholder="歌单名称（可选）">
+                </div>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="import-mode" value="import" checked>
+                        <span>仅导入</span>
+                        <span class="radio-desc">创建为在线歌曲，按需播放</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="import-mode" value="import-download">
+                        <span>导入并下载</span>
+                        <span class="radio-desc">下载音频到本地，离线可用</span>
+                    </label>
+                </div>
+                <div class="action-row">
+                    <button id="btn-import" class="btn-filled">
+                        <span class="material-symbols-outlined">download</span>
+                        执行导入
+                    </button>
+                </div>
+                <div id="import-progress" class="progress-section hidden">
+                    <div class="progress-linear">
+                        <div id="import-progress-bar" class="progress-linear-fill" style="width:0%"></div>
+                    </div>
+                    <div id="import-status" class="progress-text">导入中...</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Tab 2: 下载管理 -->
+<div class="tab-content" id="tab-download">
+    <div class="container">
+
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">cloud_download</span>
+                <span class="card-title">待下载歌曲</span>
+                <button id="btn-refresh-remote" class="btn-icon" title="刷新">
+                    <span class="material-symbols-outlined">refresh</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="remote-empty" class="empty-state">
+                    <span class="material-symbols-outlined">check_circle</span>
+                    <span>所有歌曲已下载到本地</span>
+                </div>
+                <div id="remote-list" class="song-list hidden"></div>
+                <div id="remote-toolbar" class="result-toolbar hidden">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="check-all-remote" checked>
+                        <span>全选</span>
+                    </label>
+                    <button id="btn-download-batch" class="btn-filled">
+                        <span class="material-symbols-outlined">download</span>
+                        批量下载
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 下载进度卡片 -->
+        <div id="download-progress-card" class="card hidden">
+            <div class="card-header">
+                <span class="material-symbols-outlined">downloading</span>
+                <span class="card-title">下载进度</span>
+            </div>
+            <div class="card-body">
+                <div class="progress-linear">
+                    <div id="dl-progress-bar" class="progress-linear-fill" style="width:0%"></div>
+                </div>
+                <div class="progress-stats">
+                    <span id="dl-current">0</span> / <span id="dl-total">0</span>
+                    <span class="success-text">成功 <span id="dl-success">0</span></span>
+                    <span class="error-text">失败 <span id="dl-failed">0</span></span>
+                </div>
+                <button id="btn-dl-clear" class="btn-text hidden">清除</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Tab 3: 设置 -->
+<div class="tab-content" id="tab-settings">
+    <div class="container">
+
+        <!-- yt-dlp 状态卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">terminal</span>
+                <span class="card-title">yt-dlp</span>
+            </div>
+            <div class="card-body">
+                <div class="info-row">
+                    <span class="info-label">状态</span>
+                    <span class="info-value">
+                        <span id="ytdlp-status-dot" class="status-dot stopped"></span>
+                        <span id="ytdlp-status-text">检查中...</span>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">版本</span>
+                    <span class="info-value" id="ytdlp-version">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">平台</span>
+                    <span class="info-value" id="ytdlp-platform">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">GitHub 代理</span>
+                    <span class="info-value" style="flex:1;max-width:200px;">
+                        <select id="github-proxy-select" class="select-field">
+                            <option value="">直连</option>
+                            <option value="https://ghfast.top/">ghfast.top</option>
+                            <option value="https://ghproxy.com/">ghproxy.com</option>
+                            <option value="https://gh.con.sh/">gh.con.sh</option>
+                        </select>
+                    </span>
+                </div>
+                <div class="action-row">
+                    <button id="btn-install" class="btn-filled">
+                        <span class="material-symbols-outlined">download</span>
+                        <span id="btn-install-text">安装 yt-dlp</span>
+                    </button>
+                </div>
+                <div id="install-progress" class="progress-linear hidden">
+                    <div class="progress-linear-fill indeterminate"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 网络设置 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">language</span>
+                <span class="card-title">网络设置</span>
+            </div>
+            <div class="card-body">
+                <div class="info-row">
+                    <span class="info-label">代理地址</span>
+                    <span class="info-value" style="flex:1;">
+                        <input type="text" id="setting-proxy" class="text-field" placeholder="如 http://192.168.1.1:7890（留空使用全局设置）">
+                    </span>
+                </div>
+                <div class="info-row" style="padding-top:0;">
+                    <span class="info-label" style="font-size:12px;color:var(--md-on-surface-variant);">访问 YouTube 等需要代理。优先使用此设置，留空则读取全局 HTTP 代理。</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 音频设置 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">music_note</span>
+                <span class="card-title">音频设置</span>
+            </div>
+            <div class="card-body">
+                <div class="info-row">
+                    <span class="info-label">音频质量</span>
+                    <span class="info-value" style="flex:1;max-width:200px;">
+                        <select id="setting-quality" class="select-field">
+                            <option value="bestaudio">最佳音质</option>
+                            <option value="bestaudio[ext=m4a]">M4A (AAC)</option>
+                            <option value="bestaudio[ext=webm]">WebM (Opus)</option>
+                        </select>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Cookies 浏览器</span>
+                    <span class="info-value" style="flex:1;max-width:200px;">
+                        <select id="setting-cookies-browser" class="select-field">
+                            <option value="">不使用</option>
+                            <option value="chrome">Chrome</option>
+                            <option value="firefox">Firefox</option>
+                            <option value="edge">Edge</option>
+                            <option value="safari">Safari</option>
+                        </select>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Cookies 文件</span>
+                    <span class="info-value" style="flex:1;">
+                        <input type="text" id="setting-cookies-file" class="text-field" placeholder="cookies.txt 绝对路径（可选）">
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 下载设置 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">folder</span>
+                <span class="card-title">下载设置</span>
+            </div>
+            <div class="card-body">
+                <div class="info-row">
+                    <span class="info-label">路径模板</span>
+                    <span class="info-value" style="flex:1;">
+                        <input type="text" id="setting-path-template" class="text-field" placeholder="ytdlp/{artist}/{title}">
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">嵌入元数据</span>
+                    <span class="info-value">
+                        <label class="switch">
+                            <input type="checkbox" id="setting-embed-metadata" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">下载间隔(秒)</span>
+                    <span class="info-value" style="flex:1;max-width:100px;">
+                        <input type="number" id="setting-download-interval" class="text-field" value="3" min="0" max="60">
+                    </span>
+                </div>
+                <div class="action-row">
+                    <button id="btn-save-settings" class="btn-filled">
+                        <span class="material-symbols-outlined">save</span>
+                        保存设置
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar" role="tablist">
+    <button class="tab-item active" data-tab="import" role="tab">
+        <span class="material-symbols-outlined">add_circle</span>
+        <span>导入</span>
+    </button>
+    <button class="tab-item" data-tab="download" role="tab">
+        <span class="material-symbols-outlined">cloud_download</span>
+        <span>下载</span>
+    </button>
+    <button class="tab-item" data-tab="settings" role="tab">
+        <span class="material-symbols-outlined">settings</span>
+        <span>设置</span>
+    </button>
+</div>
+
+<!-- Snackbar -->
+<div id="snackbar" class="snackbar"></div>
+
+<script type="module" src="static/js/app.js"></script>
+
+</body>
+</html>

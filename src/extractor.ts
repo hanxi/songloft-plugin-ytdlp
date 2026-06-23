@@ -1,0 +1,104 @@
+/// <reference types="@songloft/plugin-sdk" />
+
+import { getBinName } from './binary';
+import { buildCommonArgs } from './settings';
+import type { ExtractedItem, ExtractResult } from './types';
+
+export async function extractFromURL(url: string): Promise<ExtractResult> {
+  const binName = getBinName();
+  const commonArgs = await buildCommonArgs();
+
+  const args = [
+    '--dump-json',
+    '--flat-playlist',
+    ...commonArgs,
+    url,
+  ];
+
+  const result = await songloft.command.exec(binName, args, { timeout: 300000 });
+
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.trim();
+    throw new Error(parseYtdlpError(stderr));
+  }
+
+  const items = parseNDJSON(result.stdout);
+  const playlistTitle = extractPlaylistTitle(result.stdout);
+  const platform = items.length > 0 ? items[0].platform : 'unknown';
+
+  return { items, playlist_title: playlistTitle, platform };
+}
+
+function parseNDJSON(stdout: string): ExtractedItem[] {
+  const lines = stdout.trim().split('\n').filter(line => line.trim());
+  const items: ExtractedItem[] = [];
+
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      const item: ExtractedItem = {
+        id: obj.id || '',
+        title: obj.title || obj.track || '',
+        artist: obj.artist || obj.uploader || obj.creator || obj.channel || '',
+        album: obj.album || '',
+        duration: Math.round(obj.duration || 0),
+        thumbnail: pickThumbnail(obj),
+        platform: (obj.extractor_key || obj.extractor || obj.ie_key || 'unknown').toLowerCase(),
+        url: obj.webpage_url || obj.url || '',
+      };
+      if (item.id && item.title) {
+        items.push(item);
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  return items;
+}
+
+function pickThumbnail(obj: any): string {
+  if (obj.thumbnail) return obj.thumbnail;
+  if (Array.isArray(obj.thumbnails) && obj.thumbnails.length > 0) {
+    const sorted = obj.thumbnails.sort((a: any, b: any) => (b.preference || 0) - (a.preference || 0));
+    return sorted[0].url || '';
+  }
+  return '';
+}
+
+function extractPlaylistTitle(stdout: string): string {
+  const lines = stdout.trim().split('\n');
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj.playlist_title) return obj.playlist_title;
+      if (obj.playlist) return obj.playlist;
+    } catch {
+      continue;
+    }
+  }
+  return '';
+}
+
+function parseYtdlpError(stderr: string): string {
+  if (stderr.includes('is not a valid URL') || stderr.includes('Unsupported URL')) {
+    return '不支持的 URL 格式';
+  }
+  if (stderr.includes('Private video') || stderr.includes('private video')) {
+    return '视频为私密状态，无法访问';
+  }
+  if (stderr.includes('Video unavailable') || stderr.includes('not available')) {
+    return '视频不可用（可能已被删除或地区限制）';
+  }
+  if (stderr.includes('Sign in') || stderr.includes('bot')) {
+    return '需要登录验证，请在设置中配置 Cookies';
+  }
+  if (stderr.includes('Unable to download webpage') || stderr.includes('urlopen error')) {
+    return '网络连接失败，请检查代理设置';
+  }
+  if (stderr.includes('age-restricted') || stderr.includes('age restricted')) {
+    return '年龄限制内容，请配置 Cookies 以访问';
+  }
+  const lastLine = stderr.split('\n').filter(l => l.includes('ERROR')).pop();
+  return lastLine || stderr.slice(0, 300) || 'yt-dlp 执行失败';
+}
