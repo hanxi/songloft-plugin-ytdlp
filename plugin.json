@@ -15,7 +15,7 @@
     "songs.write"
   ],
   "updateUrl": "",
-  "download_url": "",
+  "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.6.23/ytdlp.jsplugin.zip",
   "entryHash": "",
   "zipHash": ""
 }
