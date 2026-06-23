@@ -1,7 +1,7 @@
 /// <reference types="@songloft/plugin-sdk" />
 
 import { jsonResponse, createRouter } from '@songloft/plugin-sdk';
-import { detectPlatform, getStatus, getLatestRelease, downloadBinary } from './binary';
+import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask } from './binary';
 import { extractFromURL } from './extractor';
 import { importSongs } from './importer';
 import { startBatchDownload, getBatchTask, clearBatchTask } from './downloader';
@@ -19,11 +19,14 @@ router.get('/api/status', async () => {
 });
 
 router.post('/api/install', async () => {
-  const result = await downloadBinary();
-  if (!result.success) {
-    return jsonResponse({ error: result.error }, 500);
-  }
-  return jsonResponse({ version: result.version });
+  // fire-and-forget：立即返回，避免 ExecuteJS 30s wall-clock 超时。
+  // 前端轮询 /api/install/status 获取进度。
+  const task = startInstall();
+  return jsonResponse({ started: true, status: task.status });
+});
+
+router.get('/api/install/status', async () => {
+  return jsonResponse(getInstallTask());
 });
 
 router.get('/api/releases', async () => {

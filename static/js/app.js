@@ -295,9 +295,16 @@ document.getElementById('btn-install').addEventListener('click', async () => {
     await API.apiPost('/api/settings', { github_proxy: proxy });
 
     try {
-        const resp = await API.apiPost('/api/install', {});
-        if (resp.error) throw new Error(resp.error);
-        showSnackbar('安装成功: ' + (resp.version || ''));
+        // 下载任务可能超过 30s（后端 ExecuteJS 上限），后端采用
+        // fire-and-forget 模式：/api/install 立即返回，这里轮询 status。
+        const startResp = await API.apiPost('/api/install', {});
+        if (startResp.error) throw new Error(startResp.error);
+
+        const result = await pollInstallStatus();
+        if (result.status === 'error') {
+            throw new Error(result.error || '安装失败');
+        }
+        showSnackbar('安装成功' + (result.version ? ': ' + result.version : ''));
         loadStatus();
     } catch (e) {
         showSnackbar('安装失败: ' + e.message);
@@ -306,6 +313,22 @@ document.getElementById('btn-install').addEventListener('click', async () => {
         document.getElementById('install-progress').classList.add('hidden');
     }
 });
+
+// 轮询安装状态直到 done/error/idle。最多等 10 分钟（够应付慢网络下 100MB以内下载）。
+async function pollInstallStatus(maxMs = 10 * 60 * 1000, intervalMs = 2000) {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, intervalMs));
+        try {
+            const s = await API.apiGet('/api/install/status');
+            if (s.status === 'done' || s.status === 'error') return s;
+            // running / idle 继续等
+        } catch (e) {
+            // 单次轮询失败不中断，下轮重试
+        }
+    }
+    throw new Error('安装超时（轮询中断）');
+}
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
     const settings = {

@@ -208,12 +208,10 @@
             <div class="card-body">
                 <div class="info-row">
                     <span class="info-label">代理地址</span>
-                    <span class="info-value" style="flex:1;">
+                    <span class="info-value info-value--form">
                         <input type="text" id="setting-proxy" class="text-field" placeholder="如 http://192.168.1.1:7890（留空使用全局设置）">
+                        <span class="info-hint">访问 YouTube 等需要代理。优先使用此设置，留空则读取全局 HTTP 代理。</span>
                     </span>
-                </div>
-                <div class="info-row" style="padding-top:0;">
-                    <span class="info-label" style="font-size:12px;color:var(--md-on-surface-variant);">访问 YouTube 等需要代理。优先使用此设置，留空则读取全局 HTTP 代理。</span>
                 </div>
             </div>
         </div>
@@ -249,7 +247,7 @@
                 </div>
                 <div class="info-row">
                     <span class="info-label">Cookies 文件</span>
-                    <span class="info-value" style="flex:1;">
+                    <span class="info-value info-value--form">
                         <input type="text" id="setting-cookies-file" class="text-field" placeholder="cookies.txt 绝对路径（可选）">
                     </span>
                 </div>
@@ -265,7 +263,7 @@
             <div class="card-body">
                 <div class="info-row">
                     <span class="info-label">路径模板</span>
-                    <span class="info-value" style="flex:1;">
+                    <span class="info-value info-value--form">
                         <input type="text" id="setting-path-template" class="text-field" placeholder="ytdlp/{artist}/{title}">
                     </span>
                 </div>

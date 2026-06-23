@@ -9,12 +9,12 @@ interface PlatformAsset {
 }
 
 const PLATFORM_ASSETS: Record<string, PlatformAsset> = {
-  'linux-amd64': { file: 'yt-dlp', url: 'yt-dlp_linux' },
-  'linux-arm64': { file: 'yt-dlp', url: 'yt-dlp_linux_aarch64' },
-  'darwin-amd64': { file: 'yt-dlp', url: 'yt-dlp_macos_legacy' },
+  'linux-amd64': { file: 'yt-dlp', url: 'yt-dlp_musllinux' },
+  'linux-arm64': { file: 'yt-dlp', url: 'yt-dlp_musllinux_aarch64' },
+  'darwin-amd64': { file: 'yt-dlp', url: 'yt-dlp_macos' },
   'darwin-arm64': { file: 'yt-dlp', url: 'yt-dlp_macos' },
   'windows-amd64': { file: 'yt-dlp.exe', url: 'yt-dlp.exe' },
-  'windows-arm64': { file: 'yt-dlp.exe', url: 'yt-dlp.exe' },
+  'windows-arm64': { file: 'yt-dlp.exe', url: 'yt-dlp_arm64.exe' },
 };
 
 let detectedPlatform = '';
@@ -77,6 +77,7 @@ export async function getLatestRelease(): Promise<{ version: string; downloadUrl
     const found = release.assets.find(a => a.name === asset.url);
     if (!found) return null;
 
+    console.log("Found release:", release.tag_name, found.browser_download_url);
     return { version: release.tag_name, downloadUrl: found.browser_download_url };
   } catch {
     return null;
@@ -87,6 +88,42 @@ function applyGithubProxy(url: string, proxy: string): string {
   if (!proxy) return url;
   const p = proxy.endsWith('/') ? proxy : proxy + '/';
   return p + url;
+}
+
+// 安装任务状态：后端 ExecuteJS 有 30s wall-clock 上限，而 yt-dlp 二进制
+// 几十 MB，慢网络下下载会超时。这里把安装做成 fire-and-forget 任务，
+// HTTP 端点立即返回，前端通过 /api/install/status 轮询进度。
+export interface InstallTask {
+  status: 'idle' | 'running' | 'done' | 'error';
+  version?: string;
+  error?: string;
+  startedAt?: number;
+}
+
+let installTask: InstallTask = { status: 'idle' };
+
+export function getInstallTask(): InstallTask {
+  return installTask;
+}
+
+export function startInstall(): InstallTask {
+  if (installTask.status === 'running') {
+    return installTask;
+  }
+  installTask = { status: 'running', startedAt: Date.now() };
+  // fire-and-forget：不 await，让 onHTTPRequest 立即返回，
+  // 避免 ExecuteJS 30s wall-clock 触发 504。
+  // 注意：ExecuteJS 返回后游离 Promise 仍会继续推进（QuickJS 的 host
+  // Promise 由宿主 goroutine 完成后回填，下一次 ExecuteJS 进入事件循环
+  // 时会被 pump）。
+  downloadBinary().then(r => {
+    installTask = r.success
+      ? { status: 'done', version: r.version, startedAt: installTask.startedAt }
+      : { status: 'error', error: r.error, startedAt: installTask.startedAt };
+  }).catch((e: any) => {
+    installTask = { status: 'error', error: e?.message || String(e), startedAt: installTask.startedAt };
+  });
+  return installTask;
 }
 
 export async function downloadBinary(): Promise<{ success: boolean; version?: string; error?: string }> {

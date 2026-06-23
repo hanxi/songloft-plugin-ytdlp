@@ -3,3 +3,4 @@ dist/
 *.log
 .DS_Store
 .songloft-dev.json
+package-lock.json
