@@ -151,6 +151,11 @@
     max-width: 320px;
 }
 
+.info-value--form .text-field,
+.info-value--form .select-field {
+    flex: none;
+}
+
 /* 设置页面表单帮助提示 */
 .info-hint {
     font-size: 12px;
@@ -248,7 +253,8 @@
 /* Select */
 .select-field {
     width: 100%;
-    padding: 10px 12px;
+    height: 36px;
+    padding: 0 12px;
     border: 1px solid var(--md-outline);
     border-radius: var(--md-radius-sm);
     font-family: inherit;
@@ -257,6 +263,7 @@
     background: var(--md-surface);
     outline: none;
     cursor: pointer;
+    box-sizing: border-box;
 }
 
 .select-field:focus { border-color: var(--md-primary); }

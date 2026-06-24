@@ -51,9 +51,11 @@ export interface Settings {
   audio_quality: string;
   cookies_browser: string;
   cookies_file: string;
+  cookies_header: string;
   github_proxy: string;
   proxy: string;
   path_template: string;
   embed_metadata: boolean;
   download_interval: number;
+  search_platform: string;
 }

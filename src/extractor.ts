@@ -57,7 +57,7 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
   return items;
 }
 
-function pickThumbnail(obj: any): string {
+export function pickThumbnail(obj: any): string {
   if (obj.thumbnail) return obj.thumbnail;
   if (Array.isArray(obj.thumbnails) && obj.thumbnails.length > 0) {
     const sorted = obj.thumbnails.sort((a: any, b: any) => (b.preference || 0) - (a.preference || 0));

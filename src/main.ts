@@ -7,6 +7,7 @@ import { importSongs } from './importer';
 import { startBatchDownload, getBatchTask, clearBatchTask } from './downloader';
 import { musicUrlHandler } from './music-url';
 import { getSettings, saveSettings } from './settings';
+import { toponeHandler } from './search';
 import type { ExtractedItem } from './types';
 
 const router = createRouter();
@@ -135,6 +136,10 @@ router.post('/api/download-batch/clear', async () => {
   clearBatchTask();
   return jsonResponse({ ok: true });
 });
+
+// --- Search ---
+
+router.post('/api/search/topone', toponeHandler);
 
 // --- Music URL resolution ---
 

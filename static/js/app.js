@@ -280,9 +280,11 @@ async function loadStatus() {
     try {
         const settings = await API.apiGet('/api/settings');
         document.getElementById('setting-proxy').value = settings.proxy || '';
+        setSearchPlatformUI(settings.search_platform || 'ytsearch');
         document.getElementById('setting-quality').value = settings.audio_quality || 'bestaudio';
         document.getElementById('setting-cookies-browser').value = settings.cookies_browser || '';
         document.getElementById('setting-cookies-file').value = settings.cookies_file || '';
+        document.getElementById('setting-cookies-header').value = settings.cookies_header || '';
         document.getElementById('setting-path-template').value = settings.path_template || 'ytdlp/{artist}/{title}';
         document.getElementById('setting-embed-metadata').checked = settings.embed_metadata !== false;
         document.getElementById('setting-download-interval').value = settings.download_interval ?? 3;
@@ -337,25 +339,119 @@ async function pollInstallStatus(maxMs = 10 * 60 * 1000, intervalMs = 2000) {
     throw new Error('安装超时（轮询中断）');
 }
 
-document.getElementById('btn-save-settings').addEventListener('click', async () => {
-    const settings = {
+function collectSettings() {
+    return {
         proxy: document.getElementById('setting-proxy').value,
+        search_platform: getSearchPlatformValue(),
         audio_quality: document.getElementById('setting-quality').value,
         cookies_browser: document.getElementById('setting-cookies-browser').value,
         cookies_file: document.getElementById('setting-cookies-file').value,
+        cookies_header: document.getElementById('setting-cookies-header').value,
         path_template: document.getElementById('setting-path-template').value,
         embed_metadata: document.getElementById('setting-embed-metadata').checked,
         download_interval: parseInt(document.getElementById('setting-download-interval').value) || 3,
         github_proxy: document.getElementById('github-proxy-select').value,
     };
+}
+
+let saveTimer = null;
+function autoSave(immediate) {
+    if (saveTimer) clearTimeout(saveTimer);
+    const delay = immediate ? 0 : 600;
+    saveTimer = setTimeout(async () => {
+        try {
+            await API.apiPost('/api/settings', collectSettings());
+            showSnackbar('设置已保存');
+        } catch (e) {
+            showSnackbar('保存失败: ' + e.message);
+        }
+    }, delay);
+}
+
+// select / checkbox 立即保存，文本输入防抖保存
+document.querySelectorAll('#tab-settings select').forEach(el => {
+    el.addEventListener('change', () => autoSave(true));
+});
+document.querySelectorAll('#tab-settings input[type="checkbox"]').forEach(el => {
+    el.addEventListener('change', () => autoSave(true));
+});
+document.querySelectorAll('#tab-settings input[type="text"], #tab-settings input[type="number"]').forEach(el => {
+    if (el.id === 'search-test-input') return;
+    el.addEventListener('input', () => autoSave(false));
+});
+
+// --- Search test ---
+
+document.getElementById('search-test-btn').addEventListener('click', async () => {
+    const input = document.getElementById('search-test-input');
+    const result = document.getElementById('search-test-result');
+    const btn = document.getElementById('search-test-btn');
+    const keyword = input.value.trim();
+
+    if (!keyword) {
+        result.style.display = 'block';
+        result.style.color = 'var(--md-error)';
+        result.textContent = '请输入搜索关键字';
+        return;
+    }
+
+    btn.disabled = true;
+    result.style.display = 'block';
+    result.style.color = 'var(--md-on-surface-variant)';
+    result.textContent = '搜索中（可能需要较长时间）...';
 
     try {
-        await API.apiPost('/api/settings', settings);
-        showSnackbar('设置已保存');
+        const resp = await API.apiPost('/api/search/topone', { keyword, quality: '320k' });
+        if (resp.code === 0 && resp.data) {
+            const d = resp.data;
+            result.style.color = 'var(--md-primary)';
+            const link = document.createElement('a');
+            link.href = d.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = d.url;
+            link.style.cssText = 'color:inherit;word-break:break-all';
+            result.textContent = `✅ 搜索成功\n\n标题: ${d.title}\n歌手: ${d.artist}\n专辑: ${d.album || '-'}\n时长: ${formatDuration(d.duration)}\nURL: `;
+            result.appendChild(link);
+        } else {
+            result.style.color = 'var(--md-error)';
+            result.textContent = `❌ 未找到结果\n\n${JSON.stringify(resp, null, 2)}`;
+        }
     } catch (e) {
-        showSnackbar('保存失败: ' + e.message);
+        result.style.color = 'var(--md-error)';
+        result.textContent = '请求失败: ' + e.message;
+    } finally {
+        btn.disabled = false;
     }
 });
+
+// --- Search platform helpers ---
+
+const searchPlatformSelect = document.getElementById('setting-search-platform');
+const searchPlatformCustom = document.getElementById('setting-search-platform-custom');
+
+searchPlatformSelect.addEventListener('change', () => {
+    searchPlatformCustom.classList.toggle('hidden', searchPlatformSelect.value !== '__custom__');
+});
+
+function setSearchPlatformUI(value) {
+    const option = searchPlatformSelect.querySelector(`option[value="${value}"]`);
+    if (option && value !== '__custom__') {
+        searchPlatformSelect.value = value;
+        searchPlatformCustom.classList.add('hidden');
+    } else {
+        searchPlatformSelect.value = '__custom__';
+        searchPlatformCustom.value = value;
+        searchPlatformCustom.classList.remove('hidden');
+    }
+}
+
+function getSearchPlatformValue() {
+    if (searchPlatformSelect.value === '__custom__') {
+        return searchPlatformCustom.value.trim() || 'ytsearch';
+    }
+    return searchPlatformSelect.value;
+}
 
 // --- Init ---
 loadStatus();

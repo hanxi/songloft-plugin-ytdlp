@@ -7,11 +7,13 @@ const DEFAULTS: Settings = {
   audio_quality: 'bestaudio',
   cookies_browser: '',
   cookies_file: '',
+  cookies_header: '',
   github_proxy: '',
   proxy: '',
   path_template: 'ytdlp/{artist}/{title}',
   embed_metadata: true,
   download_interval: 3,
+  search_platform: 'ytsearch',
 };
 
 export async function getSettings(): Promise<Settings> {
@@ -43,6 +45,8 @@ export function buildCookiesArgs(settings: Settings): string[] {
     args.push('--cookies-from-browser', settings.cookies_browser);
   } else if (settings.cookies_file) {
     args.push('--cookies', settings.cookies_file);
+  } else if (settings.cookies_header) {
+    args.push('--add-headers', `Cookie:${settings.cookies_header}`);
   }
   return args;
 }
