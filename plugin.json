@@ -6,6 +6,7 @@
   "author": "hanxi",
   "homepage": "",
   "license": "Apache-2.0",
+  "icon": "icon.svg",
   "entryPath": "ytdlp",
   "main": "main.js",
   "minHostVersion": "2.0.0",
