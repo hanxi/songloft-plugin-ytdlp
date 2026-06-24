@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/songloft-org/plugin-toolchain/main/schemas/plugin.schema.json",
   "name": "yt-dlp 音乐导入",
-  "version": "2026.6.23",
+  "version": "2026.6.24",
   "description": "通过 yt-dlp 从 YouTube、Bilibili 等平台导入歌单，支持按需播放和下载到本地",
   "author": "hanxi",
   "homepage": "",
@@ -16,7 +16,7 @@
     "songs.write"
   ],
   "updateUrl": "",
-  "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.6.23/ytdlp.jsplugin.zip",
+  "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.6.24/ytdlp.jsplugin.zip",
   "entryHash": "",
   "zipHash": ""
 }
