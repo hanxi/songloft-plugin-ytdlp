@@ -41,7 +41,9 @@ export async function toponeHandler(req: HTTPRequest) {
     `${platform}5:${keyword}`,
   ];
 
+  songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword} ${binName} ${searchArgs}`);
   const searchResult = await songloft.command.exec(binName, searchArgs, { timeout: 60000 });
+  songloft.log.info(`[search/topone] yt-dlp 搜索结果: ${searchResult.stdout}`);  
 
   if (searchResult.exitCode !== 0) {
     songloft.log.warn(`[search/topone] yt-dlp 搜索失败: ${searchResult.stderr.trim().slice(0, 300)}`);
@@ -56,7 +58,13 @@ export async function toponeHandler(req: HTTPRequest) {
       const obj = JSON.parse(line);
       const title = String(obj.title || obj.track || '');
       const artist = String(obj.artist || obj.uploader || obj.creator || obj.channel || '');
-      if (!title) continue;
+
+      // Flat playlist entries (e.g. Bilibili bilisearch) may have empty title.
+      // Keep them with minimal score; real metadata will be extracted in URL resolution phase.
+      if (!title) {
+        candidates.push({ score: 0.1, item: obj });
+        continue;
+      }
 
       let score = 0;
       if (hint) {
@@ -93,7 +101,7 @@ export async function toponeHandler(req: HTTPRequest) {
     try {
       const urlArgs = [
         '-f', settings.audio_quality || 'bestaudio',
-        '-g',
+        '--dump-json',
         '--no-playlist',
         ...commonArgs,
         targetUrl,
@@ -105,13 +113,26 @@ export async function toponeHandler(req: HTTPRequest) {
         continue;
       }
 
-      const url = urlResult.stdout.trim().split('\n')[0];
+      let metadata: any;
+      try {
+        metadata = JSON.parse(urlResult.stdout.trim().split('\n')[0]);
+      } catch {
+        lastError = 'failed to parse metadata JSON';
+        continue;
+      }
+
+      // Extract URL from full metadata (replaces -g which only returned URL without title/artist)
+      let url = metadata.url || '';
+      if (!url && metadata.formats && Array.isArray(metadata.formats)) {
+        const bestFormat = metadata.formats[metadata.formats.length - 1];
+        url = bestFormat?.url || '';
+      }
       if (!url || !url.startsWith('http')) continue;
 
-      const platform = (item.extractor_key || item.extractor || item.ie_key || 'youtube').toLowerCase();
+      const platform = (metadata.extractor_key || metadata.extractor || metadata.ie_key || 'youtube').toLowerCase();
       const sourceData: YtdlpSourceData = {
         platform,
-        id: item.id || '',
+        id: metadata.id || item.id || '',
         url: targetUrl,
       };
 
@@ -119,11 +140,12 @@ export async function toponeHandler(req: HTTPRequest) {
         code: 0,
         msg: 'success',
         data: {
-          title: item.title || item.track || '',
-          artist: item.artist || item.uploader || item.creator || item.channel || '',
-          album: item.album || '',
-          duration: Math.round(item.duration || 0),
-          cover_url: pickThumbnail(item),
+          title: metadata.title || metadata.track || item.title || item.track || '',
+          artist: metadata.artist || metadata.uploader || metadata.creator || metadata.channel ||
+                  item.artist || item.uploader || item.creator || item.channel || '',
+          album: metadata.album || item.album || '',
+          duration: Math.round(metadata.duration || item.duration || 0),
+          cover_url: pickThumbnail(metadata) || pickThumbnail(item),
           url,
           source_data: sourceData,
         },
