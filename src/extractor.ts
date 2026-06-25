@@ -41,11 +41,16 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
   for (const line of lines) {
     try {
       const obj = JSON.parse(line);
-      // Flat playlist entries (e.g. Bilibili bilisearch) may have empty title.
-      // Use webpage_url_basename or id as fallback to avoid filtering out valid entries.
-      const title = obj.title || obj.track || obj.webpage_url_basename || obj.id || '';
+      // Flat playlist entries (e.g. Bilibili bilisearch / multi-part videos)
+      // may have empty title. Use webpage_url_basename or id as fallback.
+      const partIndex = obj.playlist_index;
+      const baseTitle = obj.title || obj.track || '';
+      const fallbackId = obj.webpage_url_basename || obj.id || '';
+      // For multi-part videos, append P{N} to make title and id distinguishable
+      const title = baseTitle || (partIndex ? `${fallbackId} P${partIndex}` : fallbackId);
+      const uniqueId = partIndex ? `${obj.id}_p${partIndex}` : (obj.id || '');
       const item: ExtractedItem = {
-        id: obj.id || '',
+        id: uniqueId,
         title,
         artist: obj.artist || obj.uploader || obj.creator || obj.channel || '',
         album: obj.album || '',
@@ -68,19 +73,29 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
 /**
  * Resolve real titles for flat playlist entries that only have fallback titles
  * (e.g. Bilibili bilisearch results where flat playlist doesn't include titles).
- * Runs yt-dlp --dump-json on each individual URL to get full metadata.
+ * For Bilibili multi-part videos, uses the pagelist API for batch resolution (1 request).
+ * Falls back to individual yt-dlp --dump-json calls for other cases.
  */
 async function resolveItemTitles(
   items: ExtractedItem[],
   binName: string,
   commonArgs: string[],
 ): Promise<void> {
-  // Only resolve items whose title looks like a fallback (Bilibili av-number format)
-  const toResolve = items.filter(item => /^av\d+$/.test(item.title) && item.url);
+  // Only resolve items whose title looks like a fallback (Bilibili av/BV-number format, or equals the id)
+  const toResolve = items.filter(item =>
+    item.url && (/^(av\d+|BV\w+)$/.test(item.title) || item.title === item.id || /^av\d+ P\d+$/.test(item.title) || /^BV\w+ P\d+$/.test(item.title)),
+  );
   if (toResolve.length === 0) return;
 
   songloft.log.info(`[extractor] 需要解析标题的条目: ${toResolve.length}`);
 
+  // Fast path: Bilibili multi-part video — use pagelist API (1 request vs N yt-dlp calls)
+  if (toResolve.length >= 3) {
+    const done = await resolveBilibiliTitlesBatch(toResolve);
+    if (done) return;
+  }
+
+  // Fallback: resolve individually via yt-dlp --dump-json
   // Resolve in parallel batches of 2 to balance speed and resource usage
   const BATCH_SIZE = 2;
   for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
@@ -104,6 +119,12 @@ async function resolveItemTitles(
           item.title = metadata.title || metadata.track;
           songloft.log.info(`[extractor] 解析标题成功: ${item.url} -> ${item.title}`);
         }
+        // Update id with playlist_index for multi-part videos to ensure uniqueness
+        if (metadata.playlist_index && item.id) {
+          // Extract base id (strip existing _p{N} suffix if present)
+          const baseId = item.id.replace(/_p\d+$/, '');
+          item.id = `${baseId}_p${metadata.playlist_index}`;
+        }
         if (metadata.artist || metadata.uploader || metadata.creator || metadata.channel) {
           item.artist = metadata.artist || metadata.uploader || metadata.creator || metadata.channel || '';
         }
@@ -116,6 +137,75 @@ async function resolveItemTitles(
         // keep fallback title on error
       }
     }));
+  }
+}
+
+/**
+ * Batch-resolve titles for Bilibili multi-part videos using Bilibili's pagelist API.
+ * A single HTTP request (<200ms) returns all part titles instantly, avoiding
+ * N individual yt-dlp calls that would be slow and risk rate-limiting.
+ * Returns true if batch resolution succeeded.
+ */
+async function resolveBilibiliTitlesBatch(items: ExtractedItem[]): Promise<boolean> {
+  // Extract BV ID or AV number from the first item's URL
+  const firstUrl = items[0]?.url || '';
+  const bvMatch = firstUrl.match(/bilibili\.com\/video\/(BV\w+)/);
+  const avMatch = firstUrl.match(/bilibili\.com\/video\/av(\d+)/);
+
+  let apiUrl: string;
+  if (bvMatch) {
+    apiUrl = `https://api.bilibili.com/x/player/pagelist?bvid=${bvMatch[1]}`;
+  } else if (avMatch) {
+    apiUrl = `https://api.bilibili.com/x/player/pagelist?aid=${avMatch[1]}`;
+  } else {
+    return false;
+  }
+
+  try {
+    songloft.log.info(`[extractor] 批量获取 Bilibili 分P标题: ${apiUrl}`);
+    const resp = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.bilibili.com/',
+      },
+    });
+
+    if (!resp.ok) {
+      songloft.log.warn(`[extractor] Bilibili pagelist API HTTP ${resp.status}`);
+      return false;
+    }
+
+    const text = await resp.text();
+    const data = JSON.parse(text);
+    if (data.code !== 0 || !Array.isArray(data.data)) {
+      songloft.log.warn(`[extractor] Bilibili pagelist API 返回异常: code=${data.code}`);
+      return false;
+    }
+
+    const pages = data.data;
+    songloft.log.info(`[extractor] Bilibili pagelist 获取到 ${pages.length} 个分P标题`);
+
+    // Map pages to items by page number (Bilibili page is 1-indexed, matches playlist_index)
+    let matched = 0;
+    for (const page of pages) {
+      const pageNum: number = page.page;
+      const item = items.find(it => {
+        const match = it.id.match(/_p(\d+)$/);
+        return match && parseInt(match[1]) === pageNum;
+      });
+      if (item) {
+        item.title = page.part || item.title;
+        if (page.duration) item.duration = Math.round(page.duration);
+        matched++;
+      }
+    }
+
+    songloft.log.info(`[extractor] Bilibili 批量标题匹配成功: ${matched}/${pages.length}`);
+    return matched > 0;
+  } catch (e: any) {
+    songloft.log.warn(`[extractor] Bilibili pagelist API 请求失败: ${e.message || String(e)}`);
+    return false;
   }
 }
 
