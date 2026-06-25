@@ -15,7 +15,9 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
     url,
   ];
 
+  songloft.log.info(`[extractor] yt-dlp 提取: ${url} ${binName} ${args}`)
   const result = await songloft.command.exec(binName, args, { timeout: 300000 });
+  songloft.log.info(`[extractor] yt-dlp 提取结果: ${result.stdout}`)
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
@@ -25,6 +27,9 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
   const items = parseNDJSON(result.stdout);
   const playlistTitle = extractPlaylistTitle(result.stdout);
   const platform = items.length > 0 ? items[0].platform : 'unknown';
+
+  // Resolve real titles for flat playlist entries that only have fallback titles
+  await resolveItemTitles(items, binName, commonArgs);
 
   return { items, playlist_title: playlistTitle, platform };
 }
@@ -36,9 +41,12 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
   for (const line of lines) {
     try {
       const obj = JSON.parse(line);
+      // Flat playlist entries (e.g. Bilibili bilisearch) may have empty title.
+      // Use webpage_url_basename or id as fallback to avoid filtering out valid entries.
+      const title = obj.title || obj.track || obj.webpage_url_basename || obj.id || '';
       const item: ExtractedItem = {
         id: obj.id || '',
-        title: obj.title || obj.track || '',
+        title,
         artist: obj.artist || obj.uploader || obj.creator || obj.channel || '',
         album: obj.album || '',
         duration: Math.round(obj.duration || 0),
@@ -46,7 +54,7 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
         platform: (obj.extractor_key || obj.extractor || obj.ie_key || 'unknown').toLowerCase(),
         url: obj.webpage_url || obj.url || '',
       };
-      if (item.id && item.title) {
+      if (item.id) {
         items.push(item);
       }
     } catch {
@@ -55,6 +63,60 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
   }
 
   return items;
+}
+
+/**
+ * Resolve real titles for flat playlist entries that only have fallback titles
+ * (e.g. Bilibili bilisearch results where flat playlist doesn't include titles).
+ * Runs yt-dlp --dump-json on each individual URL to get full metadata.
+ */
+async function resolveItemTitles(
+  items: ExtractedItem[],
+  binName: string,
+  commonArgs: string[],
+): Promise<void> {
+  // Only resolve items whose title looks like a fallback (Bilibili av-number format)
+  const toResolve = items.filter(item => /^av\d+$/.test(item.title) && item.url);
+  if (toResolve.length === 0) return;
+
+  songloft.log.info(`[extractor] 需要解析标题的条目: ${toResolve.length}`);
+
+  // Resolve in parallel batches of 2 to balance speed and resource usage
+  const BATCH_SIZE = 2;
+  for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
+    const batch = toResolve.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (item) => {
+      try {
+        const args = [
+          '--dump-json',
+          '--no-playlist',
+          ...commonArgs,
+          item.url,
+        ];
+        const result = await songloft.command.exec(binName, args, { timeout: 30000 });
+        if (result.exitCode !== 0) {
+          songloft.log.warn(`[extractor] 解析标题失败 ${item.url}: ${result.stderr.trim().slice(0, 200)}`);
+          return;
+        }
+
+        const metadata = JSON.parse(result.stdout.trim().split('\n')[0]);
+        if (metadata.title || metadata.track) {
+          item.title = metadata.title || metadata.track;
+          songloft.log.info(`[extractor] 解析标题成功: ${item.url} -> ${item.title}`);
+        }
+        if (metadata.artist || metadata.uploader || metadata.creator || metadata.channel) {
+          item.artist = metadata.artist || metadata.uploader || metadata.creator || metadata.channel || '';
+        }
+        if (metadata.album) item.album = metadata.album;
+        if (metadata.duration) item.duration = Math.round(metadata.duration);
+        const thumb = pickThumbnail(metadata);
+        if (thumb) item.thumbnail = thumb;
+      } catch (e: any) {
+        songloft.log.warn(`[extractor] 解析标题异常 ${item.url}: ${e.message || String(e)}`);
+        // keep fallback title on error
+      }
+    }));
+  }
 }
 
 export function pickThumbnail(obj: any): string {
