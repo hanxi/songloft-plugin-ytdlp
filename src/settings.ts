@@ -6,8 +6,6 @@ import type { Settings } from './types';
 const DEFAULTS: Settings = {
   audio_quality: 'bestaudio',
   cookies_browser: '',
-  cookies_file: '',
-  cookies_header: '',
   github_proxy: '',
   proxy: '',
   path_template: 'ytdlp/{artist}/{title}',
@@ -39,14 +37,14 @@ export async function getProxy(): Promise<string> {
   }
 }
 
-export function buildCookiesArgs(settings: Settings): string[] {
+const COOKIES_PATH = 'data/cookies.txt';
+
+export async function buildCookiesArgs(settings: Settings): Promise<string[]> {
   const args: string[] = [];
   if (settings.cookies_browser) {
     args.push('--cookies-from-browser', settings.cookies_browser);
-  } else if (settings.cookies_file) {
-    args.push('--cookies', settings.cookies_file);
-  } else if (settings.cookies_header) {
-    args.push('--add-headers', `Cookie:${settings.cookies_header}`);
+  } else if (await songloft.fs.exists(COOKIES_PATH)) {
+    args.push('--cookies', COOKIES_PATH);
   }
   return args;
 }
@@ -60,6 +58,6 @@ export async function buildCommonArgs(): Promise<string[]> {
     args.push('--proxy', proxy);
   }
 
-  args.push(...buildCookiesArgs(settings));
+  args.push(...(await buildCookiesArgs(settings)));
   return args;
 }

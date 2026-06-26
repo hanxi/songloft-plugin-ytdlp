@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/songloft-org/plugin-toolchain/main/schemas/plugin.schema.json",
-  "name": "yt-dlp 音乐导入",
+  "name": "yt-dlp",
   "version": "2026.6.25",
   "description": "通过 yt-dlp 从 YouTube、Bilibili 等平台导入歌单，支持按需播放和下载到本地",
   "author": "hanxi",
@@ -13,6 +13,7 @@
   "permissions": [
     "storage",
     "command",
+    "fs",
     "songs.write"
   ],
   "updateUrl": "",

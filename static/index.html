@@ -316,14 +316,21 @@
                 <div class="info-row">
                     <span class="info-label">Cookies 文件</span>
                     <span class="info-value info-value--form">
-                        <input type="text" id="setting-cookies-file" class="text-field" placeholder="cookies.txt 绝对路径（可选）">
-                    </span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Cookie 字符串</span>
-                    <span class="info-value info-value--form">
-                        <input type="text" id="setting-cookies-header" class="text-field" placeholder="SESSDATA=xxx; bili_jct=yyy; DedeUserID=zzz">
-                        <span class="info-hint">直接粘贴浏览器 Cookie 值。获取方式：F12 → 网络 → 选任意请求 → 请求头 → 复制 Cookie 字段的值。三种方式按优先级生效：浏览器 > 文件 > 字符串。</span>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <input type="file" id="setting-cookies-upload" accept=".txt" style="display:none">
+                            <button id="btn-cookies-upload" class="btn-text">
+                                <span class="material-symbols-outlined">upload_file</span>
+                                上传 cookies.txt
+                            </button>
+                            <span id="cookies-file-status" class="info-label">未上传</span>
+                            <button id="btn-cookies-delete" class="btn-text hidden" style="color:var(--md-error)">
+                                <span class="material-symbols-outlined">delete</span>
+                            </button>
+                        </div>
+                        <span class="info-hint">
+                            上传 Netscape 格式的 cookies.txt 文件。固定保存至插件数据目录。
+                            <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer" style="color:var(--md-primary)">获取 Chrome 浏览器插件 →</a>
+                        </span>
                     </span>
                 </div>
             </div>

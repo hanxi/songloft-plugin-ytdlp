@@ -50,8 +50,6 @@ export interface BatchTask {
 export interface Settings {
   audio_quality: string;
   cookies_browser: string;
-  cookies_file: string;
-  cookies_header: string;
   github_proxy: string;
   proxy: string;
   path_template: string;

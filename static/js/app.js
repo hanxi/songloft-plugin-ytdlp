@@ -339,8 +339,6 @@ async function loadStatus() {
         setSearchPlatformUI(settings.search_platform || 'ytsearch');
         document.getElementById('setting-quality').value = settings.audio_quality || 'bestaudio';
         document.getElementById('setting-cookies-browser').value = settings.cookies_browser || '';
-        document.getElementById('setting-cookies-file').value = settings.cookies_file || '';
-        document.getElementById('setting-cookies-header').value = settings.cookies_header || '';
         document.getElementById('setting-path-template').value = settings.path_template || 'ytdlp/{artist}/{title}';
         document.getElementById('setting-embed-metadata').checked = settings.embed_metadata !== false;
         document.getElementById('setting-download-interval').value = settings.download_interval ?? 3;
@@ -401,8 +399,6 @@ function collectSettings() {
         search_platform: getSearchPlatformValue(),
         audio_quality: document.getElementById('setting-quality').value,
         cookies_browser: document.getElementById('setting-cookies-browser').value,
-        cookies_file: document.getElementById('setting-cookies-file').value,
-        cookies_header: document.getElementById('setting-cookies-header').value,
         path_template: document.getElementById('setting-path-template').value,
         embed_metadata: document.getElementById('setting-embed-metadata').checked,
         download_interval: parseInt(document.getElementById('setting-download-interval').value) || 3,
@@ -509,5 +505,79 @@ function getSearchPlatformValue() {
     return searchPlatformSelect.value;
 }
 
+// ==================== Cookies upload ====================
+
+async function checkCookiesStatus() {
+    try {
+        const resp = await API.apiGet('/api/cookies/status');
+        const statusEl = document.getElementById('cookies-file-status');
+        const deleteBtn = document.getElementById('btn-cookies-delete');
+        if (resp.exists) {
+            const sz = resp.size > 1024 ? (resp.size / 1024).toFixed(1) + ' KB' : resp.size + ' B';
+            statusEl.textContent = '已上传 (' + sz + ')';
+            statusEl.style.color = 'var(--md-primary)';
+            deleteBtn.classList.remove('hidden');
+        } else {
+            statusEl.textContent = '未上传';
+            statusEl.style.color = '';
+            deleteBtn.classList.add('hidden');
+        }
+    } catch {
+        document.getElementById('cookies-file-status').textContent = '检查失败';
+    }
+}
+
+document.getElementById('btn-cookies-upload').addEventListener('click', () => {
+    document.getElementById('setting-cookies-upload').click();
+});
+
+document.getElementById('setting-cookies-upload').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const btn = document.getElementById('btn-cookies-upload');
+    btn.disabled = true;
+    const statusEl = document.getElementById('cookies-file-status');
+    statusEl.textContent = '上传中...';
+
+    try {
+        const content = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('读取文件失败'));
+            reader.readAsText(file);
+        });
+
+        const resp = await API.apiPost('/api/cookies/upload', { content });
+        if (resp.error) throw new Error(resp.error);
+
+        showSnackbar('cookies.txt 上传成功');
+        await checkCookiesStatus();
+    } catch (e) {
+        statusEl.textContent = '上传失败';
+        showSnackbar('上传失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        e.target.value = '';
+    }
+});
+
+document.getElementById('btn-cookies-delete').addEventListener('click', async () => {
+    if (!confirm('确定删除 cookies.txt？')) return;
+    const btn = document.getElementById('btn-cookies-delete');
+    btn.disabled = true;
+    try {
+        const resp = await API.apiPost('/api/cookies/delete', {});
+        if (resp.error) throw new Error(resp.error);
+        showSnackbar('cookies.txt 已删除');
+        await checkCookiesStatus();
+    } catch (e) {
+        showSnackbar('删除失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
 // --- Init ---
 loadStatus();
+checkCookiesStatus();

@@ -158,6 +158,51 @@ router.post('/api/settings', async (req) => {
   return jsonResponse(updated);
 });
 
+// --- Cookies ---
+
+const COOKIES_FILE = 'data/cookies.txt';
+
+router.post('/api/cookies/upload', async (req) => {
+  try {
+    const { content } = JSON.parse(String(req.body)) as { content: string };
+    if (!content || typeof content !== 'string') {
+      return jsonResponse({ error: 'content is required' }, 400);
+    }
+    await songloft.fs.writeFile(COOKIES_FILE, content, { encoding: 'utf8' });
+    songloft.log.info('[cookies] cookies.txt uploaded');
+    return jsonResponse({ ok: true });
+  } catch (e: any) {
+    return jsonResponse({ error: e.message || 'Upload failed' }, 500);
+  }
+});
+
+router.get('/api/cookies/status', async () => {
+  try {
+    const exists = await songloft.fs.exists(COOKIES_FILE);
+    let size = 0;
+    if (exists) {
+      const stat = await songloft.fs.stat(COOKIES_FILE);
+      size = stat.size;
+    }
+    return jsonResponse({ exists, size });
+  } catch {
+    return jsonResponse({ exists: false, size: 0 });
+  }
+});
+
+router.post('/api/cookies/delete', async () => {
+  try {
+    const exists = await songloft.fs.exists(COOKIES_FILE);
+    if (exists) {
+      await songloft.fs.unlink(COOKIES_FILE);
+      songloft.log.info('[cookies] cookies.txt deleted');
+    }
+    return jsonResponse({ ok: true });
+  } catch (e: any) {
+    return jsonResponse({ error: e.message || 'Delete failed' }, 500);
+  }
+});
+
 // --- Lifecycle ---
 
 globalThis.onInit = async () => {
