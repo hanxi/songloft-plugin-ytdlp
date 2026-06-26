@@ -44,6 +44,31 @@ function proxyThumbnail(url) {
 
 // ==================== Tab 1: Import ====================
 
+// --- Mode toggle ---
+
+document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.mode;
+        document.getElementById('mode-url').classList.toggle('hidden', mode !== 'url');
+        document.getElementById('mode-search').classList.toggle('hidden', mode !== 'search');
+        // Sync search platform from settings
+        if (mode === 'search') syncSearchPlatformForImport();
+    });
+});
+
+function syncSearchPlatformForImport() {
+    const settingVal = getSearchPlatformValue();
+    if (settingVal && settingVal !== '__custom__') {
+        const sel = document.getElementById('import-search-platform');
+        const option = sel.querySelector(`option[value="${settingVal}"]`);
+        if (option) sel.value = settingVal;
+    }
+}
+
+// --- URL 模式：提取按钮 ---
+
 document.getElementById('btn-extract').addEventListener('click', async () => {
     const url = document.getElementById('input-url').value.trim();
     if (!url) { showSnackbar('请输入链接'); return; }
@@ -63,6 +88,37 @@ document.getElementById('btn-extract').addEventListener('click', async () => {
         renderExtractResult(resp);
     } catch (e) {
         document.getElementById('extract-error').textContent = e.message || '提取失败';
+        document.getElementById('extract-error').classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        document.getElementById('extract-progress').classList.add('hidden');
+    }
+});
+
+// --- 搜索模式：搜索按钮 ---
+
+document.getElementById('btn-search').addEventListener('click', async () => {
+    const keyword = document.getElementById('input-search').value.trim();
+    if (!keyword) { showSnackbar('请输入搜索关键字'); return; }
+
+    const platform = document.getElementById('import-search-platform').value;
+    const url = `${platform}5:${keyword}`;
+
+    const btn = document.getElementById('btn-search');
+    btn.disabled = true;
+    document.getElementById('extract-progress').classList.remove('hidden');
+    document.getElementById('extract-error').classList.add('hidden');
+    document.getElementById('result-card').classList.add('hidden');
+    document.getElementById('import-card').classList.add('hidden');
+
+    try {
+        const resp = await API.apiPost('/api/extract', { url });
+        if (resp.error) throw new Error(resp.error);
+
+        extractedItems = resp.items || [];
+        renderExtractResult(resp);
+    } catch (e) {
+        document.getElementById('extract-error').textContent = e.message || '搜索失败';
         document.getElementById('extract-error').classList.remove('hidden');
     } finally {
         btn.disabled = false;

@@ -17,20 +17,58 @@
 <div class="tab-content active" id="tab-import">
     <div class="container">
 
-        <!-- URL 输入卡片 -->
+        <!-- 导入卡片 -->
         <div class="card">
             <div class="card-header">
                 <span class="material-symbols-outlined">link</span>
                 <span class="card-title">导入歌曲</span>
             </div>
             <div class="card-body">
-                <div class="input-group">
-                    <input type="text" id="input-url" class="text-field" placeholder="输入 YouTube、Bilibili 等平台的歌单或视频链接">
-                    <button id="btn-extract" class="btn-filled">
+                <!-- 模式切换 -->
+                <div class="mode-toggle">
+                    <button class="mode-btn active" data-mode="url">
+                        <span class="material-symbols-outlined">link</span>
+                        URL 模式
+                    </button>
+                    <button class="mode-btn" data-mode="search">
                         <span class="material-symbols-outlined">search</span>
-                        提取
+                        搜索模式
                     </button>
                 </div>
+
+                <!-- URL 模式面板 -->
+                <div id="mode-url" class="mode-panel">
+                    <div class="input-group">
+                        <input type="text" id="input-url" class="text-field" placeholder="输入 YouTube、Bilibili 等平台的歌单或视频链接">
+                        <button id="btn-extract" class="btn-filled">
+                            <span class="material-symbols-outlined">search</span>
+                            提取
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 搜索模式面板 -->
+                <div id="mode-search" class="mode-panel hidden">
+                    <div class="info-row">
+                        <span class="info-label">搜索平台</span>
+                        <span class="info-value info-value--form">
+                            <select id="import-search-platform" class="select-field">
+                                <option value="ytsearch">YouTube（油管）</option>
+                                <option value="bilisearch">Bilibili（B站）</option>
+                                <option value="scsearch">SoundCloud</option>
+                                <option value="nicosearch">Niconico</option>
+                            </select>
+                        </span>
+                    </div>
+                    <div class="input-group" style="margin-top:12px">
+                        <input type="text" id="input-search" class="text-field" placeholder="输入搜索关键字，如 周杰伦">
+                        <button id="btn-search" class="btn-filled">
+                            <span class="material-symbols-outlined">search</span>
+                            搜索
+                        </button>
+                    </div>
+                </div>
+
                 <div id="extract-progress" class="progress-linear hidden">
                     <div class="progress-linear-fill indeterminate"></div>
                 </div>

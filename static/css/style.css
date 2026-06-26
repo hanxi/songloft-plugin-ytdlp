@@ -564,3 +564,61 @@ html.embed .tab-item::after {
 html.embed .tab-item.active::after { transform: scaleX(1) !important; }
 html.embed .tab-content { padding-top: 56px !important; padding-bottom: 16px !important; margin-left: 0 !important; }
 html.embed .snackbar { left: 50% !important; bottom: 24px !important; }
+
+/* Mode Toggle */
+.mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 4px;
+    background: var(--md-surface-variant, #e7e0ec);
+    border-radius: 12px;
+}
+
+.mode-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--md-on-surface-variant, #49454f);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .2s;
+}
+
+.mode-btn:hover {
+    color: var(--md-on-surface, #1d1b20);
+}
+
+.mode-btn.active {
+    background: var(--md-surface, #fff);
+    color: var(--md-primary, #6750a4);
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+}
+
+.mode-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.mode-panel.hidden {
+    display: none;
+}
+
+/* Select field in mode panel */
+.mode-panel .select-field {
+    width: 100%;
+    max-width: 200px;
+    padding: 8px 12px;
+    border: 1px solid var(--md-outline, #79747e);
+    border-radius: 8px;
+    background: var(--md-surface, #fff);
+    color: var(--md-on-surface, #1d1b20);
+    font-size: 14px;
+    cursor: pointer;
+}

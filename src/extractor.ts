@@ -8,6 +8,11 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
   const binName = getBinName();
   const commonArgs = await buildCommonArgs();
 
+  // Bilibili direct video URL → use pagelist API to expand multi-part videos
+  if (/bilibili\.com\/video\/(BV\w+|av\d+)/i.test(url)) {
+    return extractBilibiliVideo(url, binName, commonArgs);
+  }
+
   const args = [
     '--dump-json',
     '--flat-playlist',
@@ -31,7 +36,136 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
   // Resolve real titles for flat playlist entries that only have fallback titles
   await resolveItemTitles(items, binName, commonArgs);
 
+  // 过滤掉不可播放的条目（频道页等 duration=0 的）
+  const playableItems = items.filter(item => item.duration > 0);
+  if (playableItems.length < items.length) {
+    songloft.log.info(`[extractor] 过滤掉 ${items.length - playableItems.length} 个无时长条目（非可播放内容）`);
+  }
+
+  return { items: playableItems, playlist_title: playlistTitle, platform };
+}
+
+/**
+ * Extract Bilibili video with multi-part (分P) support.
+ * Uses yt-dlp for video info (thumbnail, uploader) and Bilibili pagelist API
+ * to discover all parts, avoiding slow per-part yt-dlp calls.
+ */
+async function extractBilibiliVideo(
+  url: string,
+  binName: string,
+  commonArgs: string[],
+): Promise<ExtractResult> {
+  // Step 1: Get video info (thumbnail, uploader, etc.) via yt-dlp --no-playlist
+  const infoArgs = [
+    '--dump-json',
+    '--no-playlist',
+    ...commonArgs,
+    url,
+  ];
+
+  songloft.log.info(`[extractor] yt-dlp 获取 Bilibili 视频信息: ${url}`);
+  const infoResult = await songloft.command.exec(binName, infoArgs, { timeout: 30000 });
+
+  if (infoResult.exitCode !== 0) {
+    throw new Error(parseYtdlpError(infoResult.stderr.trim()));
+  }
+
+  const videoInfo = JSON.parse(infoResult.stdout.trim().split('\n')[0]);
+  const thumbnail = pickThumbnail(videoInfo);
+  const artist = videoInfo.artist || videoInfo.uploader || videoInfo.creator || videoInfo.channel || '';
+  const platform = (videoInfo.extractor_key || videoInfo.extractor || videoInfo.ie_key || 'unknown').toLowerCase();
+  const playlistTitle = videoInfo.title || '';
+
+  // Step 2: Get all parts from Bilibili pagelist API
+  const bvMatch = url.match(/BV(\w+)/i);
+  const avMatch = url.match(/av(\d+)/i);
+
+  let pagelistUrl: string;
+  if (bvMatch) {
+    pagelistUrl = `https://api.bilibili.com/x/player/pagelist?bvid=${bvMatch[1]}`;
+  } else if (avMatch) {
+    pagelistUrl = `https://api.bilibili.com/x/player/pagelist?aid=${avMatch[1]}`;
+  } else {
+    // Shouldn't reach here due to caller check, but fallback to single item
+    return singleItemFallback(videoInfo, thumbnail, artist, platform, playlistTitle);
+  }
+
+  songloft.log.info(`[extractor] 获取 Bilibili 分P列表: ${pagelistUrl}`);
+  let pagelistResp: Response;
+  try {
+    pagelistResp = await fetch(pagelistUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.bilibili.com/',
+      },
+    });
+  } catch {
+    return singleItemFallback(videoInfo, thumbnail, artist, platform, playlistTitle);
+  }
+
+  if (!pagelistResp.ok) {
+    songloft.log.warn(`[extractor] Bilibili pagelist API HTTP ${pagelistResp.status}`);
+    return singleItemFallback(videoInfo, thumbnail, artist, platform, playlistTitle);
+  }
+
+  let pagelistData: any;
+  try {
+    pagelistData = JSON.parse(await pagelistResp.text());
+  } catch {
+    return singleItemFallback(videoInfo, thumbnail, artist, platform, playlistTitle);
+  }
+
+  if (pagelistData.code !== 0 || !Array.isArray(pagelistData.data)) {
+    songloft.log.warn(`[extractor] Bilibili pagelist API 返回异常: code=${pagelistData.code}`);
+    return singleItemFallback(videoInfo, thumbnail, artist, platform, playlistTitle);
+  }
+
+  const pages = pagelistData.data;
+  songloft.log.info(`[extractor] Bilibili 获取到 ${pages.length} 个分P`);
+
+  // Step 3: Create items for each part
+  const baseId = bvMatch?.[1] || avMatch?.[1] || videoInfo.id || '';
+  const webpageUrl = videoInfo.webpage_url || videoInfo.url || url;
+
+  const items: ExtractedItem[] = pages.map((page: any) => {
+    const partIndex: number = page.page;
+    const uniqueId = partIndex ? `${baseId}_p${partIndex}` : baseId;
+
+    return {
+      id: uniqueId,
+      title: page.part || `${playlistTitle} P${partIndex}`,
+      artist,
+      album: videoInfo.album || '',
+      duration: Math.round(page.duration || videoInfo.duration || 0),
+      thumbnail,
+      platform,
+      url: webpageUrl,
+    };
+  });
+
   return { items, playlist_title: playlistTitle, platform };
+}
+
+/** Fallback: return single item from video info when pagelist API fails */
+function singleItemFallback(
+  videoInfo: any,
+  thumbnail: string,
+  artist: string,
+  platform: string,
+  playlistTitle: string,
+): ExtractResult {
+  const item: ExtractedItem = {
+    id: videoInfo.id || '',
+    title: videoInfo.title || videoInfo.track || '',
+    artist,
+    album: videoInfo.album || '',
+    duration: Math.round(videoInfo.duration || 0),
+    thumbnail,
+    platform,
+    url: videoInfo.webpage_url || videoInfo.url || '',
+  };
+  return { items: [item], playlist_title: playlistTitle, platform };
 }
 
 function parseNDJSON(stdout: string): ExtractedItem[] {
@@ -147,40 +281,82 @@ async function resolveItemTitles(
  * Returns true if batch resolution succeeded.
  */
 async function resolveBilibiliTitlesBatch(items: ExtractedItem[]): Promise<boolean> {
+  // 检查是否所有条目来自同一个视频（真正的多P视频），而非不同视频的搜索结果
+  const urls = items.map(it => it.url);
+  const bvIds = urls.map(u => {
+    const m = u.match(/bilibili\.com\/video\/(BV\w+)/);
+    return m ? m[1] : null;
+  });
+  const avIds = urls.map(u => {
+    const m = u.match(/bilibili\.com\/video\/av(\d+)/);
+    return m ? m[1] : null;
+  });
+
+  const uniqueBv = [...new Set(bvIds.filter(Boolean))];
+  const uniqueAv = [...new Set(avIds.filter(Boolean))];
+
+  if (!(uniqueBv.length === 1 || uniqueAv.length === 1)) {
+    songloft.log.info(`[extractor] Bilibili 条目来自不同视频，跳过批量解析，改用逐条 yt-dlp`);
+    return false;
+  }
+
   // Extract BV ID or AV number from the first item's URL
   const firstUrl = items[0]?.url || '';
   const bvMatch = firstUrl.match(/bilibili\.com\/video\/(BV\w+)/);
   const avMatch = firstUrl.match(/bilibili\.com\/video\/av(\d+)/);
 
   let apiUrl: string;
+  let viewApiUrl: string;
   if (bvMatch) {
-    apiUrl = `https://api.bilibili.com/x/player/pagelist?bvid=${bvMatch[1]}`;
+    const bvid = bvMatch[1];
+    apiUrl = `https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`;
+    viewApiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
   } else if (avMatch) {
-    apiUrl = `https://api.bilibili.com/x/player/pagelist?aid=${avMatch[1]}`;
+    const aid = avMatch[1];
+    apiUrl = `https://api.bilibili.com/x/player/pagelist?aid=${aid}`;
+    viewApiUrl = `https://api.bilibili.com/x/web-interface/view?aid=${aid}`;
   } else {
     return false;
   }
 
   try {
     songloft.log.info(`[extractor] 批量获取 Bilibili 分P标题: ${apiUrl}`);
-    const resp = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://www.bilibili.com/',
-      },
-    });
 
-    if (!resp.ok) {
-      songloft.log.warn(`[extractor] Bilibili pagelist API HTTP ${resp.status}`);
+    // 并行请求分P列表和视频信息（获取封面）
+    const fetchHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Referer': 'https://www.bilibili.com/',
+    };
+    const [pagelistResp, viewResp] = await Promise.all([
+      fetch(apiUrl, { method: 'GET', headers: fetchHeaders }),
+      fetch(viewApiUrl, { method: 'GET', headers: fetchHeaders }),
+    ]);
+
+    if (!pagelistResp.ok) {
+      songloft.log.warn(`[extractor] Bilibili pagelist API HTTP ${pagelistResp.status}`);
       return false;
     }
 
-    const text = await resp.text();
+    const text = await pagelistResp.text();
     const data = JSON.parse(text);
     if (data.code !== 0 || !Array.isArray(data.data)) {
       songloft.log.warn(`[extractor] Bilibili pagelist API 返回异常: code=${data.code}`);
       return false;
+    }
+
+    // 从视频信息 API 提取封面图
+    let thumbnail = '';
+    if (viewResp.ok) {
+      try {
+        const viewText = await viewResp.text();
+        const viewData = JSON.parse(viewText);
+        if (viewData.code === 0 && viewData.data?.pic) {
+          thumbnail = viewData.data.pic;
+          songloft.log.info(`[extractor] Bilibili 获取到封面: ${thumbnail}`);
+        }
+      } catch {
+        // 封面获取失败不阻塞批量解析
+      }
     }
 
     const pages = data.data;
@@ -197,6 +373,7 @@ async function resolveBilibiliTitlesBatch(items: ExtractedItem[]): Promise<boole
       if (item) {
         item.title = page.part || item.title;
         if (page.duration) item.duration = Math.round(page.duration);
+        if (thumbnail) item.thumbnail = thumbnail;
         matched++;
       }
     }
