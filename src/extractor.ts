@@ -4,6 +4,13 @@ import { getBinName } from './binary';
 import { buildCommonArgs } from './settings';
 import type { ExtractedItem, ExtractResult } from './types';
 
+/** 给 Bilibili 视频地址补上分 P 参数（?p=N）。part<1 或已带 p 参数时原样返回。 */
+function bilibiliPartUrl(base: string, part: number): string {
+  if (!base || !part || part < 1) return base;
+  if (/[?&]p=/.test(base)) return base;
+  return base + (base.includes('?') ? '&' : '?') + `p=${part}`;
+}
+
 export async function extractFromURL(url: string): Promise<ExtractResult> {
   const binName = getBinName();
   const commonArgs = await buildCommonArgs();
@@ -140,7 +147,9 @@ async function extractBilibiliVideo(
       duration: Math.round(page.duration || videoInfo.duration || 0),
       thumbnail,
       platform,
-      url: webpageUrl,
+      // 分 P 视频每个 part 必须带 ?p=N，否则播放/下载时 --no-playlist 都会落到 P1，
+      // 导致所有分 P 播放同一段音频、且下载时长与元数据不符被校验拒绝。
+      url: bilibiliPartUrl(webpageUrl, partIndex),
     };
   });
 
@@ -223,17 +232,28 @@ async function resolveItemTitles(
 
   songloft.log.info(`[extractor] 需要解析标题的条目: ${toResolve.length}`);
 
-  // Fast path: Bilibili multi-part video — use pagelist API (1 request vs N yt-dlp calls)
+  // Fast path 1: Bilibili multi-part video（同一视频多 P）— pagelist API 一次请求批量解析
   if (toResolve.length >= 3) {
     const done = await resolveBilibiliTitlesBatch(toResolve);
     if (done) return;
   }
 
-  // Fallback: resolve individually via yt-dlp --dump-json
-  // Resolve in parallel batches of 2 to balance speed and resource usage
+  // Fast path 2: Bilibili 搜索结果（不同视频）— 用 view API 并行 HTTP 解析标题，
+  // 避免对每个候选各跑一次很慢的 yt-dlp --dump-json（B 站搜索最容易因此撞上宿主 wall-clock 超时报 plugin call failed）。
+  const isBili = (it: ExtractedItem) => /bilibili\.com\/video\/(BV\w+|av\d+)/i.test(it.url);
+  const biliItems = toResolve.filter(isBili);
+  const otherItems = toResolve.filter(it => !isBili(it));
+
+  if (biliItems.length > 0) {
+    await resolveBilibiliViewTitles(biliItems);
+  }
+
+  if (otherItems.length === 0) return;
+
+  // Fallback: 非 B 站条目逐个用 yt-dlp --dump-json 解析（并行批量 2 条平衡速度与资源）
   const BATCH_SIZE = 2;
-  for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
-    const batch = toResolve.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < otherItems.length; i += BATCH_SIZE) {
+    const batch = otherItems.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (item) => {
       try {
         const args = [
@@ -272,6 +292,54 @@ async function resolveItemTitles(
       }
     }));
   }
+}
+
+/**
+ * 用 Bilibili view API 并行解析一批「不同视频」的搜索结果标题/艺术家/时长/封面。
+ * 每条一个 HTTP 请求（并行），远快于逐条 yt-dlp --dump-json。
+ *
+ * 时长注意：多 P 视频 data.duration 是所有分 P 之和，但播放/下载走 --no-playlist 只取 P1，
+ * 若写入总时长会被宿主时长校验（DurationRatio 0.85 / MaxDurationRatio 1.5）判为不符而拒绝下载。
+ * 因此优先取 pages[0].duration（P1 时长）。
+ */
+async function resolveBilibiliViewTitles(items: ExtractedItem[]): Promise<void> {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.bilibili.com/',
+  };
+
+  await Promise.all(items.map(async (item) => {
+    const bv = item.url.match(/bilibili\.com\/video\/(BV\w+)/i);
+    const av = item.url.match(/bilibili\.com\/video\/av(\d+)/i);
+    let viewUrl = '';
+    if (bv) viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bv[1]}`;
+    else if (av) viewUrl = `https://api.bilibili.com/x/web-interface/view?aid=${av[1]}`;
+    else return;
+
+    try {
+      const resp = await fetch(viewUrl, { method: 'GET', headers });
+      if (!resp.ok) {
+        songloft.log.warn(`[extractor] Bilibili view API HTTP ${resp.status}: ${item.url}`);
+        return;
+      }
+      const data = JSON.parse(await resp.text());
+      if (data.code !== 0 || !data.data) {
+        songloft.log.warn(`[extractor] Bilibili view API 返回异常 code=${data.code}: ${item.url}`);
+        return;
+      }
+      const d = data.data;
+      if (d.title) item.title = d.title;
+      if (d.owner?.name) item.artist = d.owner.name;
+      // 优先 P1 时长，与 --no-playlist 播放实际内容一致
+      const dur = (Array.isArray(d.pages) && d.pages[0]?.duration) || d.duration || 0;
+      if (dur) item.duration = Math.round(dur);
+      if (d.pic) item.thumbnail = d.pic;
+      songloft.log.info(`[extractor] Bilibili view 解析成功: ${item.url} -> ${item.title}`);
+    } catch (e: any) {
+      songloft.log.warn(`[extractor] Bilibili view API 请求失败 ${item.url}: ${e.message || String(e)}`);
+      // 保留 fallback 标题
+    }
+  }));
 }
 
 /**
