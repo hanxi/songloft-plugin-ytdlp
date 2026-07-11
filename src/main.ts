@@ -8,7 +8,7 @@ import { startBatchDownload, getBatchTask, clearBatchTask } from './downloader';
 import { musicUrlHandler } from './music-url';
 import { getSettings, saveSettings } from './settings';
 import { toponeHandler } from './search';
-import { getLogs, clearLogs, restoreLogs } from './logger';
+import { getLogs, clearLogs, restoreLogs, logError } from './logger';
 import type { ExtractedItem } from './types';
 
 const router = createRouter();
@@ -51,6 +51,7 @@ router.post('/api/extract', async (req) => {
     const result = await extractFromURL(url);
     return jsonResponse(result);
   } catch (e: any) {
+    logError(`[extract] 提取失败 ${url}: ${e?.message || String(e)}`);
     return jsonResponse({ error: e.message }, 500);
   }
 });
@@ -72,6 +73,7 @@ router.post('/api/import', async (req) => {
     const result = await importSongs(items, playlist_name, playlist_id);
     return jsonResponse({ count: result.songs.length, playlist_id: result.playlist_id });
   } catch (e: any) {
+    logError(`[import] 导入失败: ${e?.message || String(e)}`);
     return jsonResponse({ error: e.message }, 500);
   }
 });
@@ -99,6 +101,7 @@ router.post('/api/import-download', async (req) => {
       download_started: true,
     });
   } catch (e: any) {
+    logError(`[import-download] 导入下载失败: ${e?.message || String(e)}`);
     return jsonResponse({ error: e.message }, 500);
   }
 });
