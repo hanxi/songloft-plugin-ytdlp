@@ -2,6 +2,7 @@
 
 import { callHostAPI } from './utils/http';
 import { getSettings } from './settings';
+import { logInfo, logError } from './logger';
 
 interface PlatformAsset {
   file: string;
@@ -141,6 +142,7 @@ export async function downloadBinary(): Promise<{ success: boolean; version?: st
   const settings = await getSettings();
   const downloadUrl = applyGithubProxy(release.downloadUrl, settings.github_proxy);
 
+  logInfo(`[install] 下载 yt-dlp ${platform} ${release.version} from ${downloadUrl}`);
   try {
     await songloft.command.download(downloadUrl, asset.file);
 
@@ -149,8 +151,10 @@ export async function downloadBinary(): Promise<{ success: boolean; version?: st
     }
 
     const version = await getVersion();
+    logInfo(`[install] yt-dlp 安装成功: ${version || '未知版本'}`);
     return { success: true, version };
   } catch (e: any) {
+    logError(`[install] yt-dlp 安装失败: ${e?.message || String(e)}`);
     return { success: false, error: e.message };
   }
 }

@@ -2,6 +2,7 @@
 
 import { getBinName } from './binary';
 import { buildCommonArgs } from './settings';
+import { logInfo, logError } from './logger';
 import type { ExtractedItem, ExtractResult } from './types';
 
 /** 给 Bilibili 视频地址补上分 P 参数（?p=N）。part<1 或已带 p 参数时原样返回。 */
@@ -27,12 +28,12 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
     url,
   ];
 
-  songloft.log.info(`[extractor] yt-dlp 提取: ${url} ${binName} ${args}`)
+  logInfo(`[extractor] 提取: ${url}`);
   const result = await songloft.command.exec(binName, args, { timeout: 300000 });
-  songloft.log.info(`[extractor] yt-dlp 提取结果: ${result.stdout}`)
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
+    logError(`[extractor] 提取失败 ${url} exitCode=${result.exitCode} stderr=${stderr}`);
     throw new Error(parseYtdlpError(stderr));
   }
 

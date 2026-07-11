@@ -1,5 +1,7 @@
 // yt-dlp 插件前端逻辑
 
+import './logs.js';
+
 const API = window.SongloftPlugin || { apiGet: (p) => fetch(p).then(r => r.json()), apiPost: (p, b) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()), getAuthToken: () => '' };
 
 // --- State ---

@@ -368,6 +368,38 @@
             </div>
         </div>
 
+        <!-- 日志 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="material-symbols-outlined">description</span>
+                <span class="card-title">日志</span>
+                <div class="log-toolbar">
+                    <select id="log-level-filter" class="select-field select-field--sm" title="按级别过滤">
+                        <option value="">全部</option>
+                        <option value="debug">调试</option>
+                        <option value="info">信息</option>
+                        <option value="warn">警告</option>
+                        <option value="error">错误</option>
+                    </select>
+                    <button id="btn-log-auto" class="btn-icon" title="自动刷新">
+                        <span class="material-symbols-outlined">autorenew</span>
+                    </button>
+                    <button id="btn-log-refresh" class="btn-icon" title="刷新">
+                        <span class="material-symbols-outlined">refresh</span>
+                    </button>
+                    <button id="btn-log-clear" class="btn-icon" title="清空日志">
+                        <span class="material-symbols-outlined">delete</span>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="info-hint" style="margin-bottom:8px;">记录提取、播放解析、下载等操作的详细日志，用于排查失败原因（如 403、超时、yt-dlp 报错）。</p>
+                <div id="log-viewer" class="log-viewer">
+                    <div class="log-empty" id="log-empty">暂无日志</div>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 

@@ -4,6 +4,7 @@ import type { HTTPRequest } from '@songloft/plugin-sdk';
 import { jsonResponse } from '@songloft/plugin-sdk';
 import { getBinName } from './binary';
 import { buildCommonArgs, getSettings } from './settings';
+import { logInfo, logError } from './logger';
 import type { YtdlpSourceData } from './types';
 
 function reconstructUrl(platform: string, id: string): string {
@@ -93,6 +94,7 @@ export async function musicUrlHandler(req: HTTPRequest) {
     const result = await songloft.command.exec(binName, args, { timeout: 30000 });
     if (result.exitCode !== 0) {
       const err = result.stderr.trim();
+      logError(`[music/url] 解析失败 ${sd.platform}:${sd.id} exitCode=${result.exitCode} stderr=${err}`);
       return jsonResponse({ error: err.slice(0, 300) || 'yt-dlp failed to resolve audio URL' }, 404);
     }
 
@@ -100,17 +102,20 @@ export async function musicUrlHandler(req: HTTPRequest) {
     try {
       metadata = JSON.parse(result.stdout.trim().split('\n')[0]);
     } catch {
+      logError(`[music/url] 解析失败 ${sd.platform}:${sd.id} 无法解析 yt-dlp 输出`);
       return jsonResponse({ error: 'failed to parse yt-dlp metadata' }, 404);
     }
 
     const { url, headers } = pickUrlAndHeaders(metadata);
     if (!url || !url.startsWith('http')) {
+      logError(`[music/url] 解析失败 ${sd.platform}:${sd.id} yt-dlp 返回无效 URL`);
       return jsonResponse({ error: 'yt-dlp returned invalid URL' }, 404);
     }
 
-    songloft.log.info(`[music/url] 解析成功: ${sd.platform}:${sd.id} headers=${Object.keys(headers).join(',')}`);
+    logInfo(`[music/url] 解析成功: ${sd.platform}:${sd.id} headers=${Object.keys(headers).join(',')}`);
     return jsonResponse({ url, headers });
   } catch (e: any) {
+    logError(`[music/url] 异常 ${sd.platform}:${sd.id}: ${e?.message || String(e)}`);
     return jsonResponse({ error: e.message || String(e) }, 404);
   }
 }

@@ -8,6 +8,7 @@ import { startBatchDownload, getBatchTask, clearBatchTask } from './downloader';
 import { musicUrlHandler } from './music-url';
 import { getSettings, saveSettings } from './settings';
 import { toponeHandler } from './search';
+import { getLogs, clearLogs, restoreLogs } from './logger';
 import type { ExtractedItem } from './types';
 
 const router = createRouter();
@@ -145,6 +146,26 @@ router.post('/api/search/topone', toponeHandler);
 
 router.post('/api/music/url', musicUrlHandler);
 
+// --- Logs ---
+
+// 返回最近日志（内存 buffer，按时间升序）。可选 ?limit=N 限制条数。
+router.get('/api/logs', async (req) => {
+  let limit = 0;
+  try {
+    const q = (req as any).query?.limit;
+    if (q) limit = parseInt(String(q), 10) || 0;
+  } catch {
+    limit = 0;
+  }
+  return jsonResponse(getLogs(limit));
+});
+
+// 清空日志（内存 + 文件）。
+router.post('/api/logs/clear', async () => {
+  await clearLogs();
+  return jsonResponse({ ok: true });
+});
+
 // --- Settings ---
 
 router.get('/api/settings', async () => {
@@ -206,6 +227,7 @@ router.post('/api/cookies/delete', async () => {
 // --- Lifecycle ---
 
 globalThis.onInit = async () => {
+  await restoreLogs();
   await detectPlatform();
 };
 
