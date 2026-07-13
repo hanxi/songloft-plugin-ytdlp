@@ -14,7 +14,8 @@
     "storage",
     "command",
     "fs",
-    "songs.write"
+    "songs.write",
+    "inter-plugin"
   ],
   "updateUrl": "",
   "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.7.13/ytdlp.jsplugin.zip",
