@@ -18,10 +18,22 @@ export function clearBatchTask(): void {
 // 会短暂堵在 ytdlp 唯一 worker 上触发 scheduler 30s 硬超时，等 backlog 排空即恢复，
 // 故对这类错误退避重试；非瞬时错误（不支持的 URL、解析失败等）直接失败不重试。
 const TRANSIENT_ERROR_RE = /call timeout|scheduler:\s*call timeout|queue full|backpressure|\btimeout\b/i;
-const RETRY_DELAYS_MS = [1000, 3000]; // 至多重试 2 次
+
+// 机器人验证 / 限流：YouTube 偶发要求「确认你不是机器人」或触发 429，属于随机/速率相关的
+// 临时性拒绝，隔几秒重试常能成功（issue #265 用户反馈）。这类错误由 music/url 解析时的
+// yt-dlp stderr 原样透传上来，故匹配其英文提示。
+const BOT_ERROR_RE = /confirm.{0,30}not a bot|not a robot|Sign in to confirm|HTTP Error 429|too many requests|rate.?limit/i;
+
+// 机器人验证退避比普通瞬时错误更久，给服务端限流窗口喘息，避免立刻再撞。
+const RETRY_DELAYS_MS = [1000, 3000]; // 瞬时错误：至多重试 2 次
+const BOT_RETRY_DELAYS_MS = [3000, 8000]; // 机器人验证：更长退避，至多重试 2 次
 
 function isTransientError(msg: string): boolean {
   return TRANSIENT_ERROR_RE.test(msg);
+}
+
+function isBotError(msg: string): boolean {
+  return BOT_ERROR_RE.test(msg);
 }
 
 async function downloadWithRetry(
@@ -29,19 +41,25 @@ async function downloadWithRetry(
   opts: { path_template: string; embed_metadata: boolean },
 ): Promise<{ result: any; attempts: number }> {
   let lastErr: any;
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+  // 最大重试轮数取两类退避表中较长者（当前都是 2）。
+  const maxAttempts = Math.max(RETRY_DELAYS_MS.length, BOT_RETRY_DELAYS_MS.length);
+  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
     try {
       const result = await songloft.songs.download(songId, opts);
       return { result, attempts: attempt + 1 };
     } catch (e: any) {
       lastErr = e;
       const msg = e?.message || String(e);
-      // 最后一次尝试，或非瞬时错误 → 不再重试
-      if (attempt >= RETRY_DELAYS_MS.length || !isTransientError(msg)) {
+      const bot = isBotError(msg);
+      const transient = isTransientError(msg);
+      const delays = bot ? BOT_RETRY_DELAYS_MS : RETRY_DELAYS_MS;
+      // 最后一次尝试，或既非瞬时也非机器人验证错误 → 不再重试
+      if (attempt >= delays.length || !(bot || transient)) {
         throw e;
       }
-      const delay = RETRY_DELAYS_MS[attempt];
-      logInfo(`[download] song=${songId} 瞬时失败(${msg})，${delay}ms 后重试 (${attempt + 1}/${RETRY_DELAYS_MS.length})`);
+      const delay = delays[attempt];
+      const kind = bot ? '机器人验证' : '瞬时失败';
+      logInfo(`[download] song=${songId} ${kind}(${msg})，${delay}ms 后重试 (${attempt + 1}/${delays.length})`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

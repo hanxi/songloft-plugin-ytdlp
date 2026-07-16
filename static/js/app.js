@@ -4,6 +4,38 @@ import './logs.js';
 
 const API = window.SongloftPlugin || { apiGet: (p) => fetch(p).then(r => r.json()), apiPost: (p, b) => fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()), getAuthToken: () => '' };
 
+// 提取/搜索会跑 yt-dlp 展开歌单，radio/mix 无限歌单可能 >30s，放宽宿主调用超时到 5min，
+// 与插件侧 command.exec 的 300s 预算对齐，避免撞默认 30s 报 504 plugin call failed。
+const EXTRACT_TIMEOUT_MS = 300000;
+
+// 提取专用 POST：不走 API.apiPost（宿主注入的 common.js 以 immutable 长缓存分发，旧客户端
+// 可能仍是不带超时头能力的旧版），而是直接 fetch 并显式带上 X-Plugin-Timeout-Ms 头，
+// 保证放宽超时对所有客户端立即生效。auth token 走 API.getAuthToken()（各版本 common.js 都有）。
+async function extractPost(url) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-Plugin-Timeout-Ms': String(EXTRACT_TIMEOUT_MS),
+    };
+    const token = (API.getAuthToken && API.getAuthToken()) || '';
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    // 相对路径 './api/extract' 相对页面 <base>（/api/v1/jsplugin/ytdlp/）解析，与 common.js 一致。
+    const resp = await fetch('./api/extract', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ url }),
+    });
+    const text = await resp.text();
+    if (!resp.ok) {
+        let msg = resp.statusText || ('HTTP ' + resp.status);
+        try {
+            const body = JSON.parse(text);
+            if (body && (body.message || body.error)) msg = body.message || body.error;
+        } catch (_) { /* 非 JSON 错误体，保留状态文案 */ }
+        throw new Error(msg);
+    }
+    return text ? JSON.parse(text) : {};
+}
+
 // --- State ---
 let extractedItems = [];
 let downloadPollTimer = null;
@@ -83,7 +115,7 @@ document.getElementById('btn-extract').addEventListener('click', async () => {
     document.getElementById('import-card').classList.add('hidden');
 
     try {
-        const resp = await API.apiPost('/api/extract', { url });
+        const resp = await extractPost(url);
         if (resp.error) throw new Error(resp.error);
 
         extractedItems = resp.items || [];
@@ -114,7 +146,7 @@ document.getElementById('btn-search').addEventListener('click', async () => {
     document.getElementById('import-card').classList.add('hidden');
 
     try {
-        const resp = await API.apiPost('/api/extract', { url });
+        const resp = await extractPost(url);
         if (resp.error) throw new Error(resp.error);
 
         extractedItems = resp.items || [];
