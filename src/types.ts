@@ -56,4 +56,9 @@ export interface Settings {
   embed_metadata: boolean;
   download_interval: number;
   search_platform: string;
+  // 下载转码：''=原始(不转码，YouTube 源常为 .mkv/.webm 视频容器，部分设备如小爱音箱无法播放)；
+  // mp3/m4a=下载时转成标准音频容器，只保留转码结果
+  transcode_format: '' | 'mp3' | 'm4a';
+  // 转码码率：0=默认最高质量；128/192/320=指定 CBR。transcode_format 为 '' 时忽略
+  transcode_bitrate: 0 | 128 | 192 | 320;
 }

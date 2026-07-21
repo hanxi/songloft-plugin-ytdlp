@@ -12,6 +12,8 @@ const DEFAULTS: Settings = {
   embed_metadata: true,
   download_interval: 3,
   search_platform: 'ytsearch',
+  transcode_format: '',
+  transcode_bitrate: 0,
 };
 
 export async function getSettings(): Promise<Settings> {

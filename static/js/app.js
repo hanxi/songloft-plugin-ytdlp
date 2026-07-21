@@ -375,10 +375,13 @@ async function loadStatus() {
         document.getElementById('setting-cookies-browser').value = settings.cookies_browser || '';
         document.getElementById('setting-path-template').value = settings.path_template || 'ytdlp/{artist}/{title}';
         document.getElementById('setting-embed-metadata').checked = settings.embed_metadata !== false;
+        document.getElementById('setting-transcode-format').value = settings.transcode_format || '';
+        document.getElementById('setting-transcode-bitrate').value = String(settings.transcode_bitrate != null ? settings.transcode_bitrate : 0);
         document.getElementById('setting-download-interval').value = settings.download_interval ?? 3;
         if (settings.github_proxy) {
             document.getElementById('github-proxy-select').value = settings.github_proxy;
         }
+        syncBitrateEnabled();
     } catch { /* use defaults */ }
 }
 
@@ -435,9 +438,16 @@ function collectSettings() {
         cookies_browser: document.getElementById('setting-cookies-browser').value,
         path_template: document.getElementById('setting-path-template').value,
         embed_metadata: document.getElementById('setting-embed-metadata').checked,
+        transcode_format: document.getElementById('setting-transcode-format').value,
+        transcode_bitrate: parseInt(document.getElementById('setting-transcode-bitrate').value, 10) || 0,
         download_interval: parseInt(document.getElementById('setting-download-interval').value) || 3,
         github_proxy: document.getElementById('github-proxy-select').value,
     };
+}
+
+// 未选择转码格式时禁用码率下拉
+function syncBitrateEnabled() {
+    document.getElementById('setting-transcode-bitrate').disabled = !document.getElementById('setting-transcode-format').value;
 }
 
 let saveTimer = null;
@@ -465,6 +475,8 @@ document.querySelectorAll('#tab-settings input[type="text"], #tab-settings input
     if (el.id === 'search-test-input') return;
     el.addEventListener('input', () => autoSave(false));
 });
+// 转码格式变化时联动禁用/启用码率下拉
+document.getElementById('setting-transcode-format').addEventListener('change', syncBitrateEnabled);
 
 // --- Search test ---
 

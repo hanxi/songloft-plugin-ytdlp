@@ -38,7 +38,7 @@ function isBotError(msg: string): boolean {
 
 async function downloadWithRetry(
   songId: number,
-  opts: { path_template: string; embed_metadata: boolean },
+  opts: { path_template: string; embed_metadata: boolean; format?: string; quality?: string },
 ): Promise<{ result: any; attempts: number }> {
   let lastErr: any;
   // 最大重试轮数取两类退避表中较长者（当前都是 2）。
@@ -71,6 +71,8 @@ export async function startBatchDownload(songIds: number[]): Promise<void> {
   const template = settings.path_template;
   const embedMetadata = settings.embed_metadata;
   const interval = settings.download_interval;
+  const transcodeFormat = settings.transcode_format;
+  const transcodeBitrate = settings.transcode_bitrate;
 
   batchTask = { results: [], current: 0, total: songIds.length, done: false };
   logInfo(`[download] 开始批量下载 ${songIds.length} 首`);
@@ -85,6 +87,9 @@ export async function startBatchDownload(songIds: number[]): Promise<void> {
         const { result, attempts } = await downloadWithRetry(songIds[i], {
           path_template: template,
           embed_metadata: embedMetadata,
+          // 转码格式非空时才带上 format/quality（宿主侧空则不转码，保留源格式）
+          format: transcodeFormat || undefined,
+          quality: transcodeFormat && transcodeBitrate ? String(transcodeBitrate) : undefined,
         });
         batchTask.results.push({ song_id: songIds[i], ...result });
         ok++;
