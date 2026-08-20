@@ -14,6 +14,7 @@ const DEFAULTS: Settings = {
   search_platform: 'ytsearch',
   transcode_format: '',
   transcode_bitrate: 0,
+  pause_on_error: true,
 };
 
 export async function getSettings(): Promise<Settings> {

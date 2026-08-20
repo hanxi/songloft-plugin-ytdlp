@@ -4,7 +4,7 @@ import { jsonResponse, createRouter } from '@songloft/plugin-sdk';
 import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask } from './binary';
 import { extractFromURL } from './extractor';
 import { importSongs } from './importer';
-import { startBatchDownload, getBatchTask, clearBatchTask } from './downloader';
+import { startBatchDownload, getBatchTask, clearBatchTask, pauseBatch, resumeBatch } from './downloader';
 import { musicUrlHandler } from './music-url';
 import { getSettings, saveSettings } from './settings';
 import { toponeHandler } from './search';
@@ -94,7 +94,8 @@ router.post('/api/import-download', async (req) => {
   try {
     const result = await importSongs(items, playlist_name, playlist_id);
     const songIds = result.songs.map(s => s.id);
-    await startBatchDownload(songIds);
+    const songTitles = new Map(result.songs.map(s => [s.id, s.title]));
+    await startBatchDownload(songIds, { playlistName: playlist_name, songTitles });
     return jsonResponse({
       count: result.songs.length,
       playlist_id: result.playlist_id,
@@ -109,12 +110,17 @@ router.post('/api/import-download', async (req) => {
 // --- Batch download ---
 
 router.post('/api/download-batch', async (req) => {
-  const { song_ids } = JSON.parse(String(req.body)) as { song_ids: number[] };
+  const { song_ids, playlist_name, song_titles } = JSON.parse(String(req.body)) as {
+    song_ids: number[];
+    playlist_name?: string;
+    song_titles?: Record<number, string>;
+  };
   if (!song_ids || song_ids.length === 0) {
     return jsonResponse({ error: 'song_ids is required' }, 400);
   }
 
-  await startBatchDownload(song_ids);
+  const titlesMap = song_titles ? new Map(Object.entries(song_titles).map(([k, v]) => [Number(k), v])) : undefined;
+  await startBatchDownload(song_ids, { playlistName: playlist_name, songTitles: titlesMap });
   return jsonResponse({ started: true, total: song_ids.length });
 });
 
@@ -130,10 +136,23 @@ router.get('/api/download-batch/progress', async () => {
     current: task.current,
     total: task.total,
     done: task.done,
+    paused: task.paused,
     success,
     failed,
     results: task.results,
+    songs: task.songs,
+    playlist_name: task.playlist_name,
   });
+});
+
+router.post('/api/download-batch/pause', async () => {
+  pauseBatch();
+  return jsonResponse({ ok: true });
+});
+
+router.post('/api/download-batch/resume', async () => {
+  resumeBatch();
+  return jsonResponse({ ok: true });
 });
 
 router.post('/api/download-batch/clear', async () => {

@@ -38,7 +38,14 @@ async function extractPost(url) {
 
 // --- State ---
 let extractedItems = [];
+let selectedIndices = new Set();
+let resultPage = 0;
+let resultPageSize = 30;
+
 let downloadPollTimer = null;
+let lastProgress = null;
+let dlPage = 0;
+const DL_PAGE_SIZE = 30;
 
 // --- Tab switching ---
 document.querySelectorAll('.tab-item').forEach(tab => {
@@ -74,6 +81,12 @@ function proxyThumbnail(url) {
     const token = API.getAuthToken();
     if (!token) return url;
     return '/api/v1/proxy?url=' + encodeURIComponent(url) + '&access_token=' + encodeURIComponent(token);
+}
+
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str == null ? '' : str;
+    return d.innerHTML;
 }
 
 // ==================== Tab 1: Import ====================
@@ -167,15 +180,44 @@ function renderExtractResult(resp) {
         return;
     }
 
+    // 默认全选所有项目
+    selectedIndices = new Set(items.map((_, i) => i));
+    resultPage = 0;
+
     document.getElementById('result-count').textContent = items.length;
+    document.getElementById('result-card').classList.remove('hidden');
+    document.getElementById('import-card').classList.remove('hidden');
+    document.getElementById('check-all').checked = true;
+
+    renderResultPage();
+
+    if (resp.playlist_title) {
+        document.getElementById('input-playlist-name').value = resp.playlist_title;
+    }
+}
+
+function resultPageCount() {
+    return Math.max(1, Math.ceil(extractedItems.length / resultPageSize));
+}
+
+function renderResultPage() {
+    const totalPages = resultPageCount();
+    if (resultPage >= totalPages) resultPage = totalPages - 1;
+    if (resultPage < 0) resultPage = 0;
+
+    const start = resultPage * resultPageSize;
+    const end = Math.min(start + resultPageSize, extractedItems.length);
+    const pageItems = extractedItems.slice(start, end);
+
     const list = document.getElementById('result-list');
     list.innerHTML = '';
 
-    items.forEach((item, i) => {
+    pageItems.forEach((item, offset) => {
+        const i = start + offset;
         const div = document.createElement('div');
         div.className = 'song-item';
         div.innerHTML = `
-            <input type="checkbox" class="song-check" data-index="${i}" checked>
+            <input type="checkbox" class="song-check" data-index="${i}" ${selectedIndices.has(i) ? 'checked' : ''}>
             ${item.thumbnail ? `<img class="song-thumb" src="${proxyThumbnail(item.thumbnail)}" alt="">` : '<div class="song-thumb"></div>'}
             <div class="song-info">
                 <div class="song-title">${escapeHtml(item.title)}</div>
@@ -186,43 +228,89 @@ function renderExtractResult(resp) {
         list.appendChild(div);
     });
 
-    document.getElementById('result-card').classList.remove('hidden');
-    document.getElementById('import-card').classList.remove('hidden');
-    document.getElementById('check-all').checked = true;
-    updateSelectedCount();
+    // 分页控件
+    const pagination = document.getElementById('result-pagination');
+    pagination.classList.toggle('hidden', extractedItems.length <= resultPageSize);
+    document.getElementById('result-page-info').textContent = `${resultPage + 1} / ${totalPages}`;
+    document.getElementById('result-prev').disabled = resultPage === 0;
+    document.getElementById('result-next').disabled = resultPage >= totalPages - 1;
 
-    if (resp.playlist_title) {
-        document.getElementById('input-playlist-name').value = resp.playlist_title;
+    syncCheckAllState();
+    syncCheckPageState(start, end);
+    updateSelectedCount();
+}
+
+function syncCheckAllState() {
+    document.getElementById('check-all').checked = selectedIndices.size === extractedItems.length && extractedItems.length > 0;
+}
+
+function syncCheckPageState(start, end) {
+    let allChecked = end > start;
+    for (let i = start; i < end; i++) {
+        if (!selectedIndices.has(i)) { allChecked = false; break; }
     }
+    document.getElementById('check-page').checked = allChecked;
 }
 
-function escapeHtml(str) {
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
+function currentPageRange() {
+    const start = resultPage * resultPageSize;
+    const end = Math.min(start + resultPageSize, extractedItems.length);
+    return [start, end];
 }
 
-// Check all / uncheck all
+// Check all（跨所有页面）
 document.getElementById('check-all').addEventListener('change', (e) => {
-    document.querySelectorAll('.song-check').forEach(cb => { cb.checked = e.target.checked; });
-    updateSelectedCount();
+    if (e.target.checked) {
+        selectedIndices = new Set(extractedItems.map((_, i) => i));
+    } else {
+        selectedIndices.clear();
+    }
+    renderResultPage();
+});
+
+// Check page（仅当前页面）
+document.getElementById('check-page').addEventListener('change', (e) => {
+    const [start, end] = currentPageRange();
+    for (let i = start; i < end; i++) {
+        if (e.target.checked) selectedIndices.add(i);
+        else selectedIndices.delete(i);
+    }
+    renderResultPage();
 });
 
 document.getElementById('result-list').addEventListener('change', (e) => {
-    if (e.target.classList.contains('song-check')) updateSelectedCount();
+    if (!e.target.classList.contains('song-check')) return;
+    const idx = parseInt(e.target.dataset.index, 10);
+    if (e.target.checked) selectedIndices.add(idx);
+    else selectedIndices.delete(idx);
+    const [start, end] = currentPageRange();
+    syncCheckAllState();
+    syncCheckPageState(start, end);
+    updateSelectedCount();
+});
+
+document.getElementById('result-prev').addEventListener('click', () => {
+    resultPage--;
+    renderResultPage();
+});
+
+document.getElementById('result-next').addEventListener('click', () => {
+    resultPage++;
+    renderResultPage();
+});
+
+document.getElementById('result-page-size').addEventListener('change', (e) => {
+    resultPageSize = parseInt(e.target.value, 10) || 30;
+    resultPage = 0;
+    renderResultPage();
 });
 
 function updateSelectedCount() {
-    const checked = document.querySelectorAll('.song-check:checked').length;
-    document.getElementById('selected-count').textContent = `已选 ${checked} 首`;
+    document.getElementById('selected-count').textContent = `已选 ${selectedIndices.size} 首`;
 }
 
 function getSelectedItems() {
-    const indices = [];
-    document.querySelectorAll('.song-check:checked').forEach(cb => {
-        indices.push(parseInt(cb.dataset.index));
-    });
-    return indices.map(i => extractedItems[i]);
+    return Array.from(selectedIndices).sort((a, b) => a - b).map(i => extractedItems[i]);
 }
 
 // Import button
@@ -251,6 +339,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
         if (mode === 'import-download' && resp.download_started) {
             document.getElementById('import-status').textContent = msg + '，开始下载...';
+            // 切换到下载 Tab，直观展示进度
+            document.querySelector('.tab-item[data-tab="download"]').click();
             startDownloadPolling();
         }
     } catch (e) {
@@ -267,7 +357,9 @@ async function loadRemoteSongs() {
     try {
         const resp = await API.apiGet('/api/download-batch/progress');
         if (resp.active) {
+            lastProgress = resp;
             renderDownloadProgress(resp);
+            if (!downloadPollTimer) startDownloadPolling();
         }
     } catch { /* ignore */ }
 
@@ -299,7 +391,61 @@ document.getElementById('btn-dl-clear').addEventListener('click', async () => {
     await API.apiPost('/api/download-batch/clear', {});
     document.getElementById('download-progress-card').classList.add('hidden');
     document.getElementById('btn-dl-clear').classList.add('hidden');
+    lastProgress = null;
+    dlPage = 0;
     stopDownloadPolling();
+});
+
+document.getElementById('btn-dl-pause').addEventListener('click', async () => {
+    try {
+        await API.apiPost('/api/download-batch/pause', {});
+        document.getElementById('btn-dl-pause').classList.add('hidden');
+        document.getElementById('btn-dl-resume').classList.remove('hidden');
+    } catch (e) {
+        showSnackbar('暂停失败: ' + e.message);
+    }
+});
+
+document.getElementById('btn-dl-resume').addEventListener('click', async () => {
+    try {
+        await API.apiPost('/api/download-batch/resume', {});
+        document.getElementById('btn-dl-resume').classList.add('hidden');
+        document.getElementById('btn-dl-pause').classList.remove('hidden');
+    } catch (e) {
+        showSnackbar('恢复失败: ' + e.message);
+    }
+});
+
+document.getElementById('btn-dl-retry').addEventListener('click', async () => {
+    if (!lastProgress || !lastProgress.songs) return;
+    const failedSongs = lastProgress.songs.filter(s => s.status === 'failed');
+    if (failedSongs.length === 0) { showSnackbar('没有失败的歌曲'); return; }
+
+    const songIds = failedSongs.map(s => s.song_id);
+    const songTitles = {};
+    failedSongs.forEach(s => { songTitles[s.song_id] = s.title; });
+
+    try {
+        await API.apiPost('/api/download-batch', {
+            song_ids: songIds,
+            playlist_name: lastProgress.playlist_name || undefined,
+            song_titles: songTitles,
+        });
+        dlPage = 0;
+        startDownloadPolling();
+    } catch (e) {
+        showSnackbar('重试失败: ' + e.message);
+    }
+});
+
+document.getElementById('dl-prev').addEventListener('click', () => {
+    dlPage--;
+    if (lastProgress) renderDownloadSongList(lastProgress.songs || []);
+});
+
+document.getElementById('dl-next').addEventListener('click', () => {
+    dlPage++;
+    if (lastProgress) renderDownloadSongList(lastProgress.songs || []);
 });
 
 function startDownloadPolling() {
@@ -324,6 +470,7 @@ async function pollDownloadProgress() {
             document.getElementById('download-progress-card').classList.add('hidden');
             return;
         }
+        lastProgress = resp;
         renderDownloadProgress(resp);
         if (resp.done) {
             stopDownloadPolling();
@@ -333,6 +480,13 @@ async function pollDownloadProgress() {
     } catch { /* ignore */ }
 }
 
+const STATUS_ICON = {
+    pending: 'schedule',
+    downloading: 'autorenew',
+    ok: 'check_circle',
+    failed: 'error',
+};
+
 function renderDownloadProgress(resp) {
     document.getElementById('download-progress-card').classList.remove('hidden');
     const pct = resp.total > 0 ? Math.round((resp.current / resp.total) * 100) : 0;
@@ -341,6 +495,80 @@ function renderDownloadProgress(resp) {
     document.getElementById('dl-total').textContent = resp.total;
     document.getElementById('dl-success').textContent = resp.success || 0;
     document.getElementById('dl-failed').textContent = resp.failed || 0;
+
+    // 状态徽标
+    const badge = document.getElementById('dl-status-badge');
+    badge.classList.remove('badge--paused', 'badge--done', 'badge--failed');
+    if (resp.done) {
+        badge.textContent = resp.failed > 0 ? '已完成（部分失败）' : '已完成';
+        badge.classList.add(resp.failed > 0 ? 'badge--failed' : 'badge--done');
+    } else if (resp.paused) {
+        badge.textContent = '已暂停';
+        badge.classList.add('badge--paused');
+    } else {
+        badge.textContent = '进行中';
+    }
+
+    // 暂停/恢复/重试/清除按钮
+    const pauseBtn = document.getElementById('btn-dl-pause');
+    const resumeBtn = document.getElementById('btn-dl-resume');
+    const retryBtn = document.getElementById('btn-dl-retry');
+    const clearBtn = document.getElementById('btn-dl-clear');
+
+    if (resp.done) {
+        pauseBtn.classList.add('hidden');
+        resumeBtn.classList.add('hidden');
+        clearBtn.classList.remove('hidden');
+        retryBtn.classList.toggle('hidden', !(resp.failed > 0));
+    } else {
+        clearBtn.classList.add('hidden');
+        retryBtn.classList.add('hidden');
+        pauseBtn.classList.toggle('hidden', !!resp.paused);
+        resumeBtn.classList.toggle('hidden', !resp.paused);
+    }
+
+    renderDownloadSongList(resp.songs || []);
+}
+
+function dlPageCount(songs) {
+    return Math.max(1, Math.ceil(songs.length / DL_PAGE_SIZE));
+}
+
+function renderDownloadSongList(songs) {
+    const totalPages = dlPageCount(songs);
+    if (dlPage >= totalPages) dlPage = totalPages - 1;
+    if (dlPage < 0) dlPage = 0;
+
+    const start = dlPage * DL_PAGE_SIZE;
+    const end = Math.min(start + DL_PAGE_SIZE, songs.length);
+    const pageSongs = songs.slice(start, end);
+
+    const list = document.getElementById('dl-song-list');
+    list.innerHTML = '';
+
+    pageSongs.forEach(song => {
+        const div = document.createElement('div');
+        div.className = 'song-item dl-song-item';
+        const icon = STATUS_ICON[song.status] || 'schedule';
+        div.innerHTML = `
+            <span class="song-status-icon status-${song.status}">
+                <span class="material-symbols-outlined">${icon}</span>
+            </span>
+            <div class="song-info">
+                <div class="song-title">${escapeHtml(song.title)}</div>
+                ${song.status === 'failed' ? `<div class="song-meta error-text">${escapeHtml(song.error || '下载失败')}</div>` : ''}
+            </div>
+        `;
+        // title 属性用 DOM 赋值而非字符串插值，避免 error 消息含引号时破坏属性边界
+        div.querySelector('.song-status-icon').title = song.error || '';
+        list.appendChild(div);
+    });
+
+    const pagination = document.getElementById('dl-pagination');
+    pagination.classList.toggle('hidden', songs.length <= DL_PAGE_SIZE);
+    document.getElementById('dl-page-info').textContent = `${dlPage + 1} / ${totalPages}`;
+    document.getElementById('dl-prev').disabled = dlPage === 0;
+    document.getElementById('dl-next').disabled = dlPage >= totalPages - 1;
 }
 
 // ==================== Tab 3: Settings ====================
@@ -378,6 +606,7 @@ async function loadStatus() {
         document.getElementById('setting-transcode-format').value = settings.transcode_format || '';
         document.getElementById('setting-transcode-bitrate').value = String(settings.transcode_bitrate != null ? settings.transcode_bitrate : 0);
         document.getElementById('setting-download-interval').value = settings.download_interval ?? 3;
+        document.getElementById('setting-pause-on-error').checked = settings.pause_on_error !== false;
         if (settings.github_proxy) {
             document.getElementById('github-proxy-select').value = settings.github_proxy;
         }
@@ -441,6 +670,7 @@ function collectSettings() {
         transcode_format: document.getElementById('setting-transcode-format').value,
         transcode_bitrate: parseInt(document.getElementById('setting-transcode-bitrate').value, 10) || 0,
         download_interval: parseInt(document.getElementById('setting-download-interval').value) || 3,
+        pause_on_error: document.getElementById('setting-pause-on-error').checked,
         github_proxy: document.getElementById('github-proxy-select').value,
     };
 }

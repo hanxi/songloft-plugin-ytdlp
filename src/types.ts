@@ -40,11 +40,23 @@ export interface BatchResult {
   error?: string;
 }
 
+export type BatchSongStatus = 'pending' | 'downloading' | 'ok' | 'failed';
+
+export interface BatchSongInfo {
+  song_id: number;
+  title: string;
+  status: BatchSongStatus;
+  error?: string;
+}
+
 export interface BatchTask {
   results: BatchResult[];
+  songs: BatchSongInfo[];
   current: number;
   total: number;
   done: boolean;
+  paused: boolean;
+  playlist_name?: string;
 }
 
 export interface Settings {
@@ -61,4 +73,5 @@ export interface Settings {
   transcode_format: '' | 'mp3' | 'm4a';
   // 转码码率：0=默认最高质量；128/192/320=指定 CBR。transcode_format 为 '' 时忽略
   transcode_bitrate: 0 | 128 | 192 | 320;
+  pause_on_error: boolean;
 }

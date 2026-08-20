@@ -465,6 +465,69 @@
     background: var(--md-on-primary);
 }
 
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 0 0;
+}
+
+.page-info {
+    font-size: 13px;
+    color: var(--md-on-surface-variant);
+    min-width: 64px;
+    text-align: center;
+}
+
+/* Download actions row */
+.dl-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.dl-actions .btn-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dl-actions .material-symbols-outlined { font-size: 16px; }
+
+/* Badge state modifiers */
+.badge.badge--paused { background: #b8860b; }
+.badge.badge--done { background: var(--md-success, #4caf50); }
+.badge.badge--failed { background: var(--md-error); }
+
+/* Download song list status icon */
+.song-status-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.song-status-icon .material-symbols-outlined { font-size: 18px; }
+
+.song-status-icon.status-pending { color: var(--md-on-surface-variant); opacity: .6; }
+.song-status-icon.status-downloading { color: var(--md-primary); animation: spin 1.2s linear infinite; }
+.song-status-icon.status-ok { color: var(--md-success, #4caf50); }
+.song-status-icon.status-failed { color: var(--md-error); }
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.song-item.dl-song-item .song-meta.error-text {
+    color: var(--md-error);
+}
+
 /* Empty State */
 .empty-state {
     display: flex;

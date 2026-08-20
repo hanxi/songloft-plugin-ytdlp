@@ -2,16 +2,50 @@
 
 import { getSettings } from './settings';
 import { logInfo, logError } from './logger';
-import type { BatchResult, BatchTask } from './types';
+import type { BatchResult, BatchTask, BatchSongInfo } from './types';
 
 let batchTask: BatchTask | null = null;
+let paused = false;
+let resumeResolve: (() => void) | null = null;
 
 export function getBatchTask(): BatchTask | null {
+  if (batchTask) {
+    batchTask.paused = paused;
+  }
   return batchTask;
 }
 
 export function clearBatchTask(): void {
   batchTask = null;
+  paused = false;
+  resumeResolve = null;
+}
+
+export function pauseBatch(): void {
+  paused = true;
+  if (batchTask) batchTask.paused = true;
+  logInfo('[download] 下载已暂停');
+}
+
+export function resumeBatch(): void {
+  paused = false;
+  if (batchTask) batchTask.paused = false;
+  if (resumeResolve) {
+    resumeResolve();
+    resumeResolve = null;
+  }
+  logInfo('[download] 下载已恢复');
+}
+
+export function isPaused(): boolean {
+  return paused;
+}
+
+function waitForResume(): Promise<void> {
+  if (!paused) return Promise.resolve();
+  return new Promise<void>(resolve => {
+    resumeResolve = resolve;
+  });
 }
 
 // 瞬时错误：调度器排队超时 / 队列背压。批量下载启动时若与导入探测撞车，
@@ -66,15 +100,31 @@ async function downloadWithRetry(
   throw lastErr;
 }
 
-export async function startBatchDownload(songIds: number[]): Promise<void> {
+export interface StartBatchOptions {
+  songTitles?: Map<number, string>;
+  playlistName?: string;
+}
+
+export async function startBatchDownload(songIds: number[], options?: StartBatchOptions): Promise<void> {
   const settings = await getSettings();
   const template = settings.path_template;
   const embedMetadata = settings.embed_metadata;
   const interval = settings.download_interval;
   const transcodeFormat = settings.transcode_format;
   const transcodeBitrate = settings.transcode_bitrate;
+  const pauseOnError = settings.pause_on_error;
+  const playlistName = options?.playlistName || '';
+  const songTitles = options?.songTitles;
 
-  batchTask = { results: [], current: 0, total: songIds.length, done: false };
+  const songs: BatchSongInfo[] = songIds.map(id => ({
+    song_id: id,
+    title: songTitles?.get(id) || `歌曲 #${id}`,
+    status: 'pending' as const,
+  }));
+
+  paused = false;
+  resumeResolve = null;
+  batchTask = { results: [], songs, current: 0, total: songIds.length, done: false, paused: false, playlist_name: playlistName };
   logInfo(`[download] 开始批量下载 ${songIds.length} 首`);
 
   (async () => {
@@ -82,24 +132,50 @@ export async function startBatchDownload(songIds: number[]): Promise<void> {
     let failed = 0;
     for (let i = 0; i < songIds.length; i++) {
       if (!batchTask) break;
+
+      // 暂停检查
+      if (paused) {
+        await waitForResume();
+      }
+      if (!batchTask) break;
+
       batchTask.current = i + 1;
+      batchTask.songs[i].status = 'downloading';
+
+      // 预替换 {playlist} 变量（宿主不感知歌单上下文）
+      const resolvedTemplate = playlistName
+        ? template.replace(/\{playlist\}/g, playlistName)
+        : template.replace(/\{playlist\}\/?/g, '');
+
       try {
         const { result, attempts } = await downloadWithRetry(songIds[i], {
-          path_template: template,
+          path_template: resolvedTemplate,
           embed_metadata: embedMetadata,
           // 转码格式非空时才带上 format/quality（宿主侧空则不转码，保留源格式）
           format: transcodeFormat || undefined,
           quality: transcodeFormat && transcodeBitrate ? String(transcodeBitrate) : undefined,
         });
         batchTask.results.push({ song_id: songIds[i], ...result });
+        batchTask.songs[i].status = 'ok';
         ok++;
         const retryNote = attempts > 1 ? `（重试 ${attempts - 1} 次后成功）` : '';
         logInfo(`[download] (${i + 1}/${songIds.length}) song=${songIds[i]} 成功${retryNote}`);
       } catch (e: any) {
         const msg = e?.message || String(e);
         batchTask.results.push({ song_id: songIds[i], status: 'failed', error: msg });
+        batchTask.songs[i].status = 'failed';
+        batchTask.songs[i].error = msg;
         failed++;
         logError(`[download] (${i + 1}/${songIds.length}) song=${songIds[i]} 失败: ${msg}`);
+
+        // 出错自动暂停
+        if (pauseOnError) {
+          paused = true;
+          batchTask.paused = true;
+          logInfo('[download] 下载出错，已自动暂停');
+          await waitForResume();
+          if (!batchTask) break;
+        }
       }
       if (i < songIds.length - 1 && interval > 0) {
         await new Promise(resolve => setTimeout(resolve, interval * 1000));

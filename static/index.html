@@ -87,11 +87,29 @@
                 <div class="result-toolbar">
                     <label class="checkbox-label">
                         <input type="checkbox" id="check-all" checked>
-                        <span>全选</span>
+                        <span>全选所有</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="check-page" checked>
+                        <span>选本页</span>
                     </label>
                     <span id="selected-count" class="info-label">已选 0 首</span>
                 </div>
                 <div id="result-list" class="song-list"></div>
+                <div id="result-pagination" class="pagination hidden">
+                    <button id="result-prev" class="btn-icon" title="上一页">
+                        <span class="material-symbols-outlined">chevron_left</span>
+                    </button>
+                    <span id="result-page-info" class="page-info">1 / 1</span>
+                    <button id="result-next" class="btn-icon" title="下一页">
+                        <span class="material-symbols-outlined">chevron_right</span>
+                    </button>
+                    <select id="result-page-size" class="select-field select-field--sm">
+                        <option value="20">20首/页</option>
+                        <option value="30" selected>30首/页</option>
+                        <option value="50">50首/页</option>
+                    </select>
+                </div>
             </div>
         </div>
 
@@ -171,6 +189,7 @@
             <div class="card-header">
                 <span class="material-symbols-outlined">downloading</span>
                 <span class="card-title">下载进度</span>
+                <span id="dl-status-badge" class="badge">进行中</span>
             </div>
             <div class="card-body">
                 <div class="progress-linear">
@@ -181,7 +200,35 @@
                     <span class="success-text">成功 <span id="dl-success">0</span></span>
                     <span class="error-text">失败 <span id="dl-failed">0</span></span>
                 </div>
-                <button id="btn-dl-clear" class="btn-text hidden">清除</button>
+                <div class="dl-actions">
+                    <button id="btn-dl-pause" class="btn-text">
+                        <span class="material-symbols-outlined">pause</span>
+                        <span>暂停</span>
+                    </button>
+                    <button id="btn-dl-resume" class="btn-text hidden">
+                        <span class="material-symbols-outlined">play_arrow</span>
+                        <span>恢复</span>
+                    </button>
+                    <button id="btn-dl-retry" class="btn-text hidden">
+                        <span class="material-symbols-outlined">replay</span>
+                        <span>重试失败</span>
+                    </button>
+                    <button id="btn-dl-clear" class="btn-text hidden">
+                        <span class="material-symbols-outlined">close</span>
+                        <span>清除</span>
+                    </button>
+                </div>
+                <!-- 下载歌曲列表 -->
+                <div id="dl-song-list" class="song-list"></div>
+                <div id="dl-pagination" class="pagination hidden">
+                    <button id="dl-prev" class="btn-icon" title="上一页">
+                        <span class="material-symbols-outlined">chevron_left</span>
+                    </button>
+                    <span id="dl-page-info" class="page-info">1 / 1</span>
+                    <button id="dl-next" class="btn-icon" title="下一页">
+                        <span class="material-symbols-outlined">chevron_right</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -347,7 +394,7 @@
                     <span class="info-label">路径模板</span>
                     <span class="info-value info-value--form">
                         <input type="text" id="setting-path-template" class="text-field" placeholder="ytdlp/{artist}/{title}">
-                        <span class="info-hint">相对音乐库目录的保存路径，无需写扩展名（系统自动补）。可用变量：{title} 标题（必填）、{artist} 艺术家、{album} 专辑、{year} 年份、{genre} 流派。留空则用默认 ytdlp/{artist}/{title}。提示：来自 YouTube 的歌曲通常只有 {title}、{artist}，{album}/{year}/{genre} 可能为空。</span>
+                        <span class="info-hint">相对音乐库目录的保存路径，无需写扩展名（系统自动补）。可用变量：{title} 标题（必填）、{artist} 艺术家、{album} 专辑、{year} 年份、{genre} 流派、{playlist} 歌单名称。留空则用默认 ytdlp/{artist}/{title}。提示：来自 YouTube 的歌曲通常只有 {title}、{artist}，{album}/{year}/{genre} 可能为空；{playlist} 使用导入时填写的歌单名称。</span>
                     </span>
                 </div>
                 <div class="info-row">
@@ -390,6 +437,15 @@
                     <span class="info-label">下载间隔(秒)</span>
                     <span class="info-value" style="flex:1;max-width:100px;">
                         <input type="number" id="setting-download-interval" class="text-field" value="3" min="0" max="60">
+                    </span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">出错自动暂停</span>
+                    <span class="info-value">
+                        <label class="switch">
+                            <input type="checkbox" id="setting-pause-on-error" checked>
+                            <span class="slider"></span>
+                        </label>
                     </span>
                 </div>
             </div>
