@@ -320,11 +320,16 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
     const mode = document.querySelector('input[name="import-mode"]:checked').value;
     const playlistName = document.getElementById('input-playlist-name').value.trim();
+    const selectedPlaylistId = document.getElementById('select-playlist').value;
     const btn = document.getElementById('btn-import');
     btn.disabled = true;
 
     const endpoint = mode === 'import-download' ? '/api/import-download' : '/api/import';
-    const body = { items, playlist_name: playlistName || undefined };
+    const body = {
+        items,
+        playlist_name: selectedPlaylistId ? undefined : (playlistName || undefined),
+        playlist_id: selectedPlaylistId ? parseInt(selectedPlaylistId, 10) : undefined,
+    };
 
     document.getElementById('import-progress').classList.remove('hidden');
     document.getElementById('import-status').textContent = '导入中...';
@@ -333,16 +338,19 @@ document.getElementById('btn-import').addEventListener('click', async () => {
         const resp = await API.apiPost(endpoint, body);
         if (resp.error) throw new Error(resp.error);
 
-        const msg = `成功导入 ${resp.count} 首歌曲` + (resp.playlist_id ? '，已创建歌单' : '');
+        const playlistMsg = selectedPlaylistId ? '，已合并到歌单' : (resp.playlist_id ? '，已创建歌单' : '');
+        const msg = `成功导入 ${resp.count} 首歌曲${playlistMsg}`;
         document.getElementById('import-status').textContent = msg;
         showSnackbar(msg);
 
         if (mode === 'import-download' && resp.download_started) {
             document.getElementById('import-status').textContent = msg + '，开始下载...';
-            // 切换到下载 Tab，直观展示进度
             document.querySelector('.tab-item[data-tab="download"]').click();
             startDownloadPolling();
         }
+
+        // Refresh playlist list after import
+        loadPlaylists();
     } catch (e) {
         document.getElementById('import-status').textContent = '导入失败: ' + e.message;
         showSnackbar('导入失败');
@@ -854,6 +862,137 @@ document.getElementById('btn-cookies-delete').addEventListener('click', async ()
     }
 });
 
+// ==================== Binary manual download/upload ====================
+
+document.getElementById('btn-show-download-url').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-show-download-url');
+    btn.disabled = true;
+    try {
+        const info = await API.apiGet('/api/binary/info');
+        const urlDiv = document.getElementById('binary-download-url');
+        const link = document.getElementById('binary-url-link');
+        if (info.downloadUrl) {
+            link.href = info.downloadUrl;
+            link.textContent = info.downloadUrl;
+            urlDiv.classList.remove('hidden');
+        } else {
+            showSnackbar('无法获取下载链接');
+        }
+    } catch (e) {
+        showSnackbar('获取下载链接失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+document.getElementById('btn-copy-url').addEventListener('click', () => {
+    const link = document.getElementById('binary-url-link');
+    const url = link.textContent;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => showSnackbar('链接已复制'));
+    } else {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showSnackbar('链接已复制');
+    }
+});
+
+document.getElementById('btn-binary-upload').addEventListener('click', () => {
+    document.getElementById('binary-upload-input').click();
+});
+
+document.getElementById('binary-upload-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const btn = document.getElementById('btn-binary-upload');
+    const statusEl = document.getElementById('binary-upload-status');
+    btn.disabled = true;
+    statusEl.style.color = 'var(--md-on-surface-variant)';
+    statusEl.classList.remove('hidden');
+
+    // 分片上传：每片 512KB 原始数据（base64 后约 680KB），避免大文件 OOM
+    const CHUNK_RAW_SIZE = 512 * 1024;
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        const totalChunks = Math.ceil(bytes.length / CHUNK_RAW_SIZE);
+
+        statusEl.textContent = `准备上传 (${(bytes.length / 1024 / 1024).toFixed(1)} MB, ${totalChunks} 片)...`;
+
+        // 1. 通知后端开始
+        const startResp = await API.apiPost('/api/binary/upload/start', { total_chunks: totalChunks });
+        if (startResp.error) throw new Error(startResp.error);
+
+        // 2. 逐片上传（顺序发送，后端直接追加写入文件）
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_RAW_SIZE;
+            const end = Math.min(start + CHUNK_RAW_SIZE, bytes.length);
+            const slice = bytes.slice(start, end);
+
+            let binary = '';
+            const encChunk = 8192;
+            for (let j = 0; j < slice.length; j += encChunk) {
+                binary += String.fromCharCode(...slice.slice(j, j + encChunk));
+            }
+            const base64 = btoa(binary);
+
+            statusEl.textContent = `上传中 ${i + 1}/${totalChunks}...`;
+            const chunkResp = await API.apiPost('/api/binary/upload/chunk', { data: base64 });
+            if (chunkResp.error) throw new Error(chunkResp.error);
+        }
+
+        // 3. 通知后端完成组装
+        statusEl.textContent = '正在写入文件...';
+        const finalResp = await API.apiPost('/api/binary/upload/finalize', {});
+        if (finalResp.error) throw new Error(finalResp.error);
+
+        statusEl.style.color = 'var(--md-primary)';
+        statusEl.textContent = '上传成功' + (finalResp.version ? ': ' + finalResp.version : '');
+        showSnackbar('yt-dlp 上传成功');
+        loadStatus();
+    } catch (err) {
+        statusEl.style.color = 'var(--md-error)';
+        statusEl.textContent = '上传失败: ' + err.message;
+        showSnackbar('上传失败: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        e.target.value = '';
+    }
+});
+
+// ==================== Playlist selector ====================
+
+let cachedPlaylists = [];
+
+async function loadPlaylists() {
+    try {
+        const playlists = await API.apiGet('/api/playlists');
+        cachedPlaylists = Array.isArray(playlists) ? playlists : [];
+        const sel = document.getElementById('select-playlist');
+        // Keep the first "新建歌单" option
+        sel.innerHTML = '<option value="">新建歌单</option>';
+        cachedPlaylists.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name}（${p.song_count} 首）`;
+            sel.appendChild(opt);
+        });
+    } catch { /* ignore */ }
+}
+
+document.getElementById('select-playlist').addEventListener('change', () => {
+    const sel = document.getElementById('select-playlist');
+    const newRow = document.getElementById('new-playlist-row');
+    newRow.classList.toggle('hidden', sel.value !== '');
+});
+
 // --- Init ---
 loadStatus();
 checkCookiesStatus();
+loadPlaylists();

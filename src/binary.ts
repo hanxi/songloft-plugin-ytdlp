@@ -127,6 +127,69 @@ export function startInstall(): InstallTask {
   return installTask;
 }
 
+export async function getBinaryInfo(): Promise<{ platform: string; binName: string; downloadUrl: string; version: string }> {
+  const platform = await detectPlatform();
+  const asset = PLATFORM_ASSETS[platform];
+  if (!asset) {
+    return { platform, binName: 'yt-dlp', downloadUrl: '', version: '' };
+  }
+
+  const release = await getLatestRelease();
+  const settings = await getSettings();
+  const rawUrl = release?.downloadUrl || `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset.url}`;
+  const downloadUrl = applyGithubProxy(rawUrl, settings.github_proxy);
+
+  return {
+    platform,
+    binName: asset.file,
+    downloadUrl,
+    version: release?.version || '',
+  };
+}
+
+// 分片上传状态
+let uploadExpectedChunks = 0;
+let uploadReceivedChunks = 0;
+let uploadBinPath = '';
+
+export async function startUpload(totalChunks: number): Promise<void> {
+  const platform = await detectPlatform();
+  const asset = PLATFORM_ASSETS[platform];
+  uploadBinPath = `bin/${asset?.file || 'yt-dlp'}`;
+  uploadExpectedChunks = totalChunks;
+  uploadReceivedChunks = 0;
+  // 清空目标文件
+  await songloft.fs.writeFile(uploadBinPath, '', { encoding: 'utf8' });
+}
+
+export async function appendUploadChunk(data: string): Promise<{ received: number; total: number }> {
+  // 每片独立解码并追加原始字节，不在内存中拼接完整 base64
+  await songloft.fs.appendFile(uploadBinPath, data, { encoding: 'base64' });
+  uploadReceivedChunks++;
+  return { received: uploadReceivedChunks, total: uploadExpectedChunks };
+}
+
+export async function finalizeUpload(): Promise<{ success: boolean; version?: string; error?: string }> {
+  const platform = await detectPlatform();
+
+  if (uploadReceivedChunks !== uploadExpectedChunks) {
+    return { success: false, error: `分片不完整: 收到 ${uploadReceivedChunks}/${uploadExpectedChunks}` };
+  }
+
+  try {
+    if (!platform.startsWith('windows')) {
+      await songloft.command.exec('chmod', ['+x', uploadBinPath], { timeout: 5000 });
+    }
+
+    const version = await getVersion();
+    logInfo(`[install] yt-dlp 手动上传成功: ${version || '未知版本'}`);
+    return { success: true, version };
+  } catch (e: any) {
+    logError(`[install] yt-dlp 上传失败: ${e?.message || String(e)}`);
+    return { success: false, error: e?.message || String(e) };
+  }
+}
+
 export async function downloadBinary(): Promise<{ success: boolean; version?: string; error?: string }> {
   const platform = await detectPlatform();
   const asset = PLATFORM_ASSETS[platform];

@@ -120,8 +120,16 @@
                 <span class="card-title">导入选项</span>
             </div>
             <div class="card-body">
-                <div class="input-group">
-                    <input type="text" id="input-playlist-name" class="text-field" placeholder="歌单名称（可选）">
+                <div class="info-row">
+                    <span class="info-label">目标歌单</span>
+                    <span class="info-value info-value--form">
+                        <select id="select-playlist" class="select-field">
+                            <option value="">新建歌单</option>
+                        </select>
+                    </span>
+                </div>
+                <div id="new-playlist-row" class="input-group">
+                    <input type="text" id="input-playlist-name" class="text-field" placeholder="歌单名称（可选，留空则不加入歌单）">
                 </div>
                 <div class="radio-group">
                     <label class="radio-label">
@@ -280,6 +288,32 @@
                 </div>
                 <div id="install-progress" class="progress-linear hidden">
                     <div class="progress-linear-fill indeterminate"></div>
+                </div>
+                <!-- 手动下载/上传 -->
+                <div class="info-row" style="margin-top:12px">
+                    <span class="info-label">手动安装</span>
+                    <span class="info-value info-value--form">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <button id="btn-show-download-url" class="btn-text">
+                                <span class="material-symbols-outlined">link</span>
+                                显示下载链接
+                            </button>
+                            <input type="file" id="binary-upload-input" style="display:none">
+                            <button id="btn-binary-upload" class="btn-text">
+                                <span class="material-symbols-outlined">upload_file</span>
+                                上传二进制文件
+                            </button>
+                        </div>
+                        <div id="binary-download-url" class="hidden" style="margin-top:8px;word-break:break-all;">
+                            <span class="info-hint">下载链接：</span>
+                            <a id="binary-url-link" href="#" target="_blank" rel="noopener noreferrer" style="color:var(--md-primary);font-size:12px;word-break:break-all;"></a>
+                            <button id="btn-copy-url" class="btn-icon" title="复制链接" style="vertical-align:middle">
+                                <span class="material-symbols-outlined" style="font-size:16px">content_copy</span>
+                            </button>
+                        </div>
+                        <div id="binary-upload-status" class="hidden" style="margin-top:4px;font-size:12px;"></div>
+                        <span class="info-hint">自动安装失败时，可手动下载 yt-dlp 二进制文件后上传。</span>
+                    </span>
                 </div>
             </div>
         </div>

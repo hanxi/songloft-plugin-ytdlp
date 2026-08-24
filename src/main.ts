@@ -1,7 +1,7 @@
 /// <reference types="@songloft/plugin-sdk" />
 
 import { jsonResponse, createRouter } from '@songloft/plugin-sdk';
-import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask } from './binary';
+import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask, getBinaryInfo, startUpload, appendUploadChunk, finalizeUpload } from './binary';
 import { extractFromURL } from './extractor';
 import { importSongs } from './importer';
 import { startBatchDownload, getBatchTask, clearBatchTask, pauseBatch, resumeBatch } from './downloader';
@@ -37,6 +37,37 @@ router.get('/api/releases', async () => {
     return jsonResponse({ error: 'Failed to fetch release info' }, 500);
   }
   return jsonResponse(release);
+});
+
+router.get('/api/binary/info', async () => {
+  const info = await getBinaryInfo();
+  return jsonResponse(info);
+});
+
+router.post('/api/binary/upload/start', async (req) => {
+  const { total_chunks } = JSON.parse(String(req.body)) as { total_chunks: number };
+  if (!total_chunks || total_chunks < 1) {
+    return jsonResponse({ error: 'total_chunks is required' }, 400);
+  }
+  await startUpload(total_chunks);
+  return jsonResponse({ ok: true, total_chunks });
+});
+
+router.post('/api/binary/upload/chunk', async (req) => {
+  const { data } = JSON.parse(String(req.body)) as { data: string };
+  if (!data) {
+    return jsonResponse({ error: 'data is required' }, 400);
+  }
+  const progress = await appendUploadChunk(data);
+  return jsonResponse(progress);
+});
+
+router.post('/api/binary/upload/finalize', async () => {
+  const result = await finalizeUpload();
+  if (!result.success) {
+    return jsonResponse({ error: result.error }, 500);
+  }
+  return jsonResponse({ ok: true, version: result.version });
 });
 
 // --- Extraction ---
@@ -158,6 +189,19 @@ router.post('/api/download-batch/resume', async () => {
 router.post('/api/download-batch/clear', async () => {
   clearBatchTask();
   return jsonResponse({ ok: true });
+});
+
+// --- Playlists ---
+
+router.get('/api/playlists', async () => {
+  try {
+    const playlists = await songloft.playlists.list();
+    const normal = playlists.filter(p => p.type === 'normal' && !p.labels?.includes('built_in'));
+    return jsonResponse(normal);
+  } catch (e: any) {
+    logError(`[playlists] 获取歌单列表失败: ${e?.message || String(e)}`);
+    return jsonResponse({ error: e.message }, 500);
+  }
 });
 
 // --- Search ---
