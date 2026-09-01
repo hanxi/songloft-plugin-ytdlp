@@ -51,8 +51,14 @@ export async function importSongs(
   let finalPlaylistId = playlistId;
 
   if (playlistName && !finalPlaylistId) {
-    const playlist = await songloft.playlists.create({ name: playlistName, type: 'normal' });
-    finalPlaylistId = playlist.id;
+    const existing = await songloft.playlists.search(playlistName);
+    const exact = existing.find(p => p.name === playlistName && p.type === 'normal');
+    if (exact) {
+      finalPlaylistId = exact.id;
+    } else {
+      const playlist = await songloft.playlists.create({ name: playlistName, type: 'normal' });
+      finalPlaylistId = playlist.id;
+    }
   }
 
   if (finalPlaylistId && allSongs.length > 0) {

@@ -349,8 +349,13 @@ document.getElementById('btn-import').addEventListener('click', async () => {
             startDownloadPolling();
         }
 
-        // Refresh playlist list after import
-        loadPlaylists();
+        // Refresh playlist list and auto-select the target playlist
+        await loadPlaylists();
+        if (resp.playlist_id) {
+            const sel = document.getElementById('select-playlist');
+            sel.value = String(resp.playlist_id);
+            sel.dispatchEvent(new Event('change'));
+        }
     } catch (e) {
         document.getElementById('import-status').textContent = '导入失败: ' + e.message;
         showSnackbar('导入失败');
