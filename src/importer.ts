@@ -51,17 +51,15 @@ export async function importSongs(
   let finalPlaylistId = playlistId;
 
   if (playlistName && !finalPlaylistId) {
-    const resp = await callHostAPI<{ id: number }>(
-      'POST', '/api/v1/playlists', { name: playlistName, type: 'normal' },
-    );
-    finalPlaylistId = resp.id;
+    const playlist = await songloft.playlists.create({ name: playlistName, type: 'normal' });
+    finalPlaylistId = playlist.id;
   }
 
   if (finalPlaylistId && allSongs.length > 0) {
     const songIds = allSongs.map(s => s.id);
     for (let i = 0; i < songIds.length; i += batchSize) {
       const batch = songIds.slice(i, i + batchSize);
-      await callHostAPI('POST', `/api/v1/playlists/${finalPlaylistId}/songs`, { song_ids: batch });
+      await songloft.playlists.addSongs(finalPlaylistId, batch);
     }
   }
 
