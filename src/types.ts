@@ -68,6 +68,7 @@ export interface Settings {
   embed_metadata: boolean;
   download_interval: number;
   search_platform: string;
+  search_count: number;
   // 下载转码：''=原始(不转码，YouTube 源常为 .mkv/.webm 视频容器，部分设备如小爱音箱无法播放)；
   // mp3/m4a=下载时转成标准音频容器，只保留转码结果
   transcode_format: '' | 'mp3' | 'm4a';

@@ -149,7 +149,8 @@ document.getElementById('btn-search').addEventListener('click', async () => {
     if (!keyword) { showSnackbar('请输入搜索关键字'); return; }
 
     const platform = document.getElementById('import-search-platform').value;
-    const url = `${platform}5:${keyword}`;
+    const count = Math.max(1, Math.min(50, parseInt(document.getElementById('setting-search-count').value, 10) || 5));
+    const url = `${platform}${count}:${keyword}`;
 
     const btn = document.getElementById('btn-search');
     btn.disabled = true;
@@ -618,6 +619,7 @@ async function loadStatus() {
         document.getElementById('setting-embed-metadata').checked = settings.embed_metadata !== false;
         document.getElementById('setting-transcode-format').value = settings.transcode_format || '';
         document.getElementById('setting-transcode-bitrate').value = String(settings.transcode_bitrate != null ? settings.transcode_bitrate : 0);
+        document.getElementById('setting-search-count').value = settings.search_count ?? 5;
         document.getElementById('setting-download-interval').value = settings.download_interval ?? 3;
         document.getElementById('setting-pause-on-error').checked = settings.pause_on_error !== false;
         if (settings.github_proxy) {
@@ -682,6 +684,7 @@ function collectSettings() {
         embed_metadata: document.getElementById('setting-embed-metadata').checked,
         transcode_format: document.getElementById('setting-transcode-format').value,
         transcode_bitrate: parseInt(document.getElementById('setting-transcode-bitrate').value, 10) || 0,
+        search_count: parseInt(document.getElementById('setting-search-count').value, 10) || 5,
         download_interval: parseInt(document.getElementById('setting-download-interval').value) || 3,
         pause_on_error: document.getElementById('setting-pause-on-error').checked,
         github_proxy: document.getElementById('github-proxy-select').value,

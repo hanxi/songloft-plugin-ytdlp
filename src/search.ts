@@ -34,11 +34,12 @@ export async function toponeHandler(req: HTTPRequest) {
   const settings = await getSettings();
 
   const platform = settings.search_platform || 'ytsearch';
+  const count = Math.max(1, Math.min(50, settings.search_count || 5));
   const searchArgs = [
     '--dump-json',
     '--flat-playlist',
     ...commonArgs,
-    `${platform}5:${keyword}`,
+    `${platform}${count}:${keyword}`,
   ];
 
   songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword} ${binName} ${searchArgs}`);

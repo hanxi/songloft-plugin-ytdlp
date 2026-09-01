@@ -12,6 +12,7 @@ const DEFAULTS: Settings = {
   embed_metadata: true,
   download_interval: 3,
   search_platform: 'ytsearch',
+  search_count: 5,
   transcode_format: '',
   transcode_bitrate: 0,
   pause_on_error: true,

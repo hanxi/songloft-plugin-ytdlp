@@ -373,6 +373,15 @@
                     <div id="search-test-result" style="margin-top:8px;font-size:12px;color:var(--md-on-surface-variant);white-space:pre-wrap;word-break:break-all;display:none"></div>
                 </div>
                 <div class="info-row">
+                    <span class="info-label">搜索结果数量</span>
+                    <span class="info-value info-value--form">
+                        <span style="max-width:100px;">
+                            <input type="number" id="setting-search-count" class="text-field" value="5" min="1" max="50">
+                        </span>
+                        <span class="info-hint">搜索模式和 topone 接口返回的最大结果数（1–50，默认 5）。数量越多搜索越慢。</span>
+                    </span>
+                </div>
+                <div class="info-row">
                     <span class="info-label">音频质量</span>
                     <span class="info-value" style="flex:1;max-width:200px;">
                         <select id="setting-quality" class="select-field">
