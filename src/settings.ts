@@ -57,6 +57,10 @@ export async function buildCommonArgs(): Promise<string[]> {
   const settings = await getSettings();
   const args: string[] = ['--no-warnings'];
 
+  // 允许旧版 TLS 协议协商，修复部分环境 SSLV3_ALERT_HANDSHAKE_FAILURE 错误
+  // 参考: https://github.com/hanxi/songloft-plugin-ytdlp/issues/8
+  args.push('--legacy-server-connect');
+
   const proxy = await getProxy();
   if (proxy) {
     args.push('--proxy', proxy);
