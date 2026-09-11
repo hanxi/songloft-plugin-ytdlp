@@ -149,6 +149,12 @@ export async function toponeHandler(req: HTTPRequest) {
           cover_url: pickThumbnail(metadata) || pickThumbnail(item),
           url,
           source_data: sourceData,
+          // 声明本结果由 ytdlp 插件提供，供消费方（如 miot）写入歌曲的 plugin_entry_path。
+          // 这样宿主播放时走 IsPluginSourced() 分支：调本插件 /api/music/url 重新解析
+          // 得到带 http_headers（Referer/UA）的新鲜直链并后台缓存到本地，而非直推这条
+          // 会过期且后端不带 Referer 的签名直链（B站 CDN 403，songloft-plugin-miot#101）。
+          // 值须与 plugin.json 的 entryPath 一致，fetcher 据此路由 InvokeHTTP。
+          plugin_entry_path: 'ytdlp',
         },
       });
     } catch (e: any) {
