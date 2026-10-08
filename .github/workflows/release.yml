@@ -86,13 +86,22 @@ jobs:
           echo "download_url=${DOWNLOAD_URL}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-      - name: Commit version bump
+      - name: Commit release manifest
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           DOWNLOAD_URL="${{ steps.create_release.outputs.download_url }}"
+          unzip -p "dist/${{ steps.plugin_info.outputs.zip_name }}" plugin.json > "$RUNNER_TEMP/ytdlp-release-manifest.json"
           node -e "
             const fs = require('fs');
             const p = JSON.parse(fs.readFileSync('plugin.json', 'utf-8'));
+            const built = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/ytdlp-release-manifest.json', 'utf-8'));
+            if (built.version !== '${VERSION}' || built.entryPath !== p.entryPath
+              || !/^[a-f0-9]{64}$/.test(built.entryHash) || !/^[a-f0-9]{64}$/.test(built.zipHash)) {
+              throw new Error('Invalid release manifest');
+            }
+            p.main = built.main;
+            p.entryHash = built.entryHash;
+            p.zipHash = built.zipHash;
             p.version = '${VERSION}';
             p.download_url = '${DOWNLOAD_URL}';
             fs.writeFileSync('plugin.json', JSON.stringify(p, null, 2) + '\n');

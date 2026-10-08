@@ -8,7 +8,7 @@
   "license": "Apache-2.0",
   "icon": "icon.svg",
   "entryPath": "ytdlp",
-  "main": "main.js",
+  "main": "main.jsc",
   "minHostVersion": "2.0.0",
   "permissions": [
     "storage",
@@ -21,6 +21,6 @@
   ],
   "updateUrl": "",
   "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.9.11/ytdlp.jsplugin.zip",
-  "entryHash": "",
-  "zipHash": ""
+  "entryHash": "1800cbecdc1c65082457345f8ba5e2f4f559ec32bb88b1a3a9fb519496db4ce2",
+  "zipHash": "3b543958dfce1b8c19ea77b54b272c8e8d582e4e0247a4e7f1f216db5f83d37b"
 }
