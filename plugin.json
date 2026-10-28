@@ -1,12 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/songloft-org/plugin-toolchain/main/schemas/plugin.schema.json",
   "name": "yt-dlp",
-  "version": "2026.9.11",
+  "version": "2026.10.28.0",
   "description": "通过 yt-dlp 从 YouTube、Bilibili 等平台导入歌单，支持按需播放和下载到本地",
   "author": "hanxi",
   "homepage": "",
   "license": "Apache-2.0",
-  "icon": "icon.svg",
+  "icon": "icon.7dbc7fc1.svg",
   "entryPath": "ytdlp",
   "main": "main.jsc",
   "minHostVersion": "2.0.0",
@@ -20,7 +20,7 @@
     "inter-plugin"
   ],
   "updateUrl": "",
-  "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.9.11/ytdlp.jsplugin.zip",
-  "entryHash": "1800cbecdc1c65082457345f8ba5e2f4f559ec32bb88b1a3a9fb519496db4ce2",
-  "zipHash": "3b543958dfce1b8c19ea77b54b272c8e8d582e4e0247a4e7f1f216db5f83d37b"
+  "download_url": "https://github.com/hanxi/songloft-plugin-ytdlp/releases/download/v2026.10.28.0/ytdlp.jsplugin.zip",
+  "entryHash": "082414e9e6fa2fd5a1109cdb4aa11e3db71d83e21225de8e6599c8cadd9e2f85",
+  "zipHash": "d0234c59eafc249ce56137bb1d55e59bff6e0997b2b0d9f08e8e9bb2d194dcf5"
 }

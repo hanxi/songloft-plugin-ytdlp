@@ -10,7 +10,7 @@ on:
       prerelease:
         description: '预发布，不更新正式插件源清单'
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: release-plugin

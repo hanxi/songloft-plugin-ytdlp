@@ -47,7 +47,7 @@ pnpm run typecheck
 
 ### Releases
 
-Manually run `Release Plugin` in GitHub Actions. An empty version follows MIOT's rules: Beijing time, `Y.M.D.N`, starting at `.0` each day and increasing numerically across all existing tags, including prereleases. If a legacy three-part tag exists on that date, start at `.1` to avoid an equal version. A future current-version date is preserved until the clock catches up, avoiding a downgrade. An explicit valid four-part version is also accepted. `prerelease` defaults to enabled; tags use `vY.M.D.N`. Existing Releases are never overwritten.
+Manually run `Release Plugin` in GitHub Actions. An empty version follows MIOT's rules: Beijing time, `Y.M.D.N`, starting at `.0` each day and increasing numerically across all existing tags, including prereleases. If a legacy three-part tag exists on that date, start at `.1` to avoid an equal version. A future current-version date is preserved until the clock catches up, avoiding a downgrade. An explicit valid four-part version is also accepted. `prerelease` defaults to disabled (stable release); enable it manually for a prerelease. Tags use `vY.M.D.N`. Existing Releases are never overwritten.
 
 There are two workflows:
 
