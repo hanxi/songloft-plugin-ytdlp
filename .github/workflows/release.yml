@@ -4,113 +4,140 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（留空则自动生成日期版本，格式：Y.M.D）'
+        description: '版本号（留空自动生成 Y.M.D）'
         required: false
         default: ''
+      prerelease:
+        description: '预发布，不更新正式插件源清单'
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-plugin
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: Install dependencies
-        run: pnpm install
+      - name: Install dependencies and check plugin
+        run: |
+          pnpm install
+          pnpm run typecheck
+          pnpm test
 
-      - name: Resolve version
+      - name: Resolve plugin and upstream versions
         id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="$(date +'%Y.%-m.%-d')"
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Generated version: ${VERSION}"
-
-      - name: Update version in plugin.json / package.json
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          node -e "
-            const fs = require('fs');
-            for (const f of ['plugin.json', 'package.json']) {
-              const p = JSON.parse(fs.readFileSync(f, 'utf-8'));
-              p.version = '${VERSION}';
-              fs.writeFileSync(f, JSON.stringify(p, null, 2) + '\n');
-            }
-          "
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Extract plugin info
-        id: plugin_info
-        run: |
-          ENTRY_PATH=$(node -p "require('./plugin.json').entryPath")
-          ZIP_NAME="${ENTRY_PATH}.jsplugin.zip"
-          echo "entryPath=${ENTRY_PATH}" >> $GITHUB_OUTPUT
-          echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        id: create_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ZIP_NAME="${{ steps.plugin_info.outputs.zip_name }}"
+          VERSION="${INPUT_VERSION:-$(date +'%Y.%-m.%-d')}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           TAG="v${VERSION}"
-
-          if gh release view "${TAG}" &>/dev/null; then
-            gh release delete "${TAG}" --yes --cleanup-tag
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; use a new version" >&2
+            exit 1
           fi
+          YTDLP_VERSION=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)
+          [[ "$YTDLP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ytdlp_version=$YTDLP_VERSION" >> "$GITHUB_OUTPUT"
 
-          gh release create "${TAG}" \
-            "dist/${ZIP_NAME}" \
-            --title "v${VERSION}" \
-            --notes "自动构建的 JS 插件 v${VERSION}"
+      - name: Checkout resolved yt-dlp release
+        uses: actions/checkout@v4
+        with:
+          repository: yt-dlp/yt-dlp
+          ref: ${{ steps.version.outputs.ytdlp_version }}
+          path: upstream-yt-dlp
+          persist-credentials: false
 
-          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP_NAME}"
-          echo "download_url=${DOWNLOAD_URL}" >> $GITHUB_OUTPUT
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
 
-      - name: Commit release manifest
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build standalone ARMv7 musl yt-dlp
+        uses: docker/build-push-action@v6
+        with:
+          context: upstream-yt-dlp
+          file: scripts/armv7/Dockerfile
+          platforms: linux/arm/v7
+          build-args: YTDLP_VERSION=${{ steps.version.outputs.ytdlp_version }}
+          outputs: type=local,dest=release-assets
+          cache-from: type=gha,scope=ytdlp-armv7
+          cache-to: type=gha,mode=max,scope=ytdlp-armv7
+
+      - name: Verify in clean Alpine without Python
+        env:
+          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
+        run: node scripts/armv7/smoke.mjs release-assets "$YTDLP_VERSION"
+
+      - name: Build matching plugin and release manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          DOWNLOAD_URL="${{ steps.create_release.outputs.download_url }}"
-          unzip -p "dist/${{ steps.plugin_info.outputs.zip_name }}" plugin.json > "$RUNNER_TEMP/ytdlp-release-manifest.json"
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('plugin.json', 'utf-8'));
-            const built = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/ytdlp-release-manifest.json', 'utf-8'));
-            if (built.version !== '${VERSION}' || built.entryPath !== p.entryPath
-              || !/^[a-f0-9]{64}$/.test(built.entryHash) || !/^[a-f0-9]{64}$/.test(built.zipHash)) {
-              throw new Error('Invalid release manifest');
-            }
-            p.main = built.main;
-            p.entryHash = built.entryHash;
-            p.zipHash = built.zipHash;
-            p.version = '${VERSION}';
-            p.download_url = '${DOWNLOAD_URL}';
-            fs.writeFileSync('plugin.json', JSON.stringify(p, null, 2) + '\n');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-            pkg.version = '${VERSION}';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
+          node scripts/prepare-release.mjs
+          pnpm test
+          pnpm run build
+          cp dist/ytdlp.jsplugin.zip release-assets/
+          unzip -p dist/ytdlp.jsplugin.zip plugin.json > release-assets/plugin.json
+          node scripts/release-info.mjs
+          cd release-assets
+          sha256sum yt-dlp* ytdlp.jsplugin.zip plugin.json > SHA256SUMS
+
+      - name: Preserve verified release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytdlp-${{ steps.version.outputs.version }}
+          path: release-assets/
+          compression-level: 0
+
+      - name: Create release with plugin and yt-dlp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          FLAGS=()
+          if [ "$PRERELEASE" = true ]; then
+            FLAGS+=(--prerelease --latest=false)
+          fi
+          gh release create "$TAG" \
+            release-assets/ytdlp.jsplugin.zip \
+            "release-assets/yt-dlp_musllinux_armv7l#yt-dlp ${YTDLP_VERSION}" \
+            release-assets/yt-dlp-LICENSE \
+            release-assets/yt-dlp-THIRD_PARTY_LICENSES.txt \
+            release-assets/yt-dlp-python-requirements.txt \
+            release-assets/yt-dlp-build.json \
+            release-assets/plugin.json release-assets/SHA256SUMS \
+            --target "$GITHUB_SHA" --title "$TAG" \
+            --notes-file release-assets/release-notes.md "${FLAGS[@]}"
+
+      - name: Update stable registry manifest
+        if: ${{ !inputs.prerelease }}
+        run: |
+          cp release-assets/plugin.json plugin.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add plugin.json package.json
-          git diff --staged --quiet || git commit -m "chore(release): bump to v${VERSION}"
-          git push
+          git diff --staged --quiet || git commit -m "chore(release): 更新至 ${{ steps.version.outputs.tag }}"
+          git push origin HEAD:main
