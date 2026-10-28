@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { chmodSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 
@@ -9,6 +10,16 @@ assert(
   assets && /^\d+\.\d+\.\d+(\.\d+)?$/.test(version || ''),
   'Usage: node smoke.mjs ASSET_DIR YTDLP_VERSION',
 );
+
+// BuildKit exports may keep owner-only modes. Match command.download + chmod,
+// while retaining uid=1000 for the actual executable and all runtime checks.
+const binaryPath = resolve(assets, 'yt-dlp_musllinux_armv7l');
+console.log('Exported modes:', {
+  directory: (statSync(assets).mode & 0o777).toString(8),
+  binary: (statSync(binaryPath).mode & 0o777).toString(8),
+});
+chmodSync(assets, 0o755);
+chmodSync(binaryPath, 0o755);
 
 // A real PCM WAV served locally makes the download check deterministic.
 const wav = Buffer.alloc(44 + 1600);

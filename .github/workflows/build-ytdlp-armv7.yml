@@ -83,6 +83,15 @@ jobs:
           YTDLP_VERSION: ${{ steps.release.outputs.ytdlp_version }}
         run: node scripts/armv7/smoke.mjs armv7-assets "$YTDLP_VERSION"
 
+      - name: Preserve candidate for diagnosis when runtime checks fail
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: armv7-candidate-${{ steps.release.outputs.tag }}
+          path: armv7-assets/
+          if-no-files-found: ignore
+          compression-level: 0
+
       - name: Record source and checksums
         env:
           YTDLP_VERSION: ${{ steps.release.outputs.ytdlp_version }}
