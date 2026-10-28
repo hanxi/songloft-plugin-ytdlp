@@ -33,7 +33,7 @@ https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
 
 - ARMv7（`armv7l`，Songloft 平台字段为 `linux-arm`）使用本插件仓库同版本 Release 中的 `yt-dlp_musllinux_armv7l`，内置 Python，适用于 Alpine / musl；不支持 ARMv6 或 glibc 系统。
 - 自动安装与手动下载链接都指向插件自身版本对应的标签，因此预发布也能下载，且不会误用上游的 glibc ARM 包。其他平台继续使用 yt-dlp 上游正式版。
-- 预发布请从对应 Release 手动安装 `ytdlp.jsplugin.zip`，再在插件设置中安装 yt-dlp；普通插件源仍提供正式版。
+- 预发布请从对应 Release 手动安装 `ytdlp.jsplugin.zip`，ARM 附件就绪后再在插件设置中安装 yt-dlp；普通插件源仍提供正式版。Release 说明中会更新异步构建状态，尚未就绪时安装器会提示稍后重试。
 - 单文件程序需要可执行的临时目录。构建验证使用 QEMU ARMv7 和干净 Alpine 容器，不代表玩客云真机已验收。YouTube 等站点可能还需要 JS 运行时，本包不内置 Deno 或浏览器模拟依赖。
 
 ## 开发
@@ -49,13 +49,17 @@ pnpm run typecheck
 
 ### 发布
 
-在 GitHub Actions 手动运行 `Release Plugin`，填写新的 `Y.M.D` 版本号（留空取当天日期）。`prerelease` 默认开启，Release 标签仍为 `vY.M.D`；同一版本不覆盖已有 Release。
+在 GitHub Actions 手动运行 `Release Plugin`，版本号留空时遵循 MIOT 插件规则：按北京时间生成 `Y.M.D.N`，每日从 `.0` 开始，根据全部已有标签（含预发布）按数字递增；同日存在旧三段版本时从 `.1` 开始，避免相等版本；旧版本使用未来日期时先沿用该日期，避免降级。也可显式填写合法四段版本。`prerelease` 默认开启，标签为 `vY.M.D.N`；不覆盖已有 Release。
 
-每次发布都会解析 yt-dlp 最新正式版标签，检出该版本源码，使用固定 Python Alpine 镜像和上游锁定的 Python 依赖，在 `linux/arm/v7` 下通过官方 PyInstaller 入口构建单文件。CI 在不安装 Python、uid=1000 的 Alpine 3.24 容器中检查版本、提取器、真实 HTTP 音频下载及 HTTPS 解析，通过后将以下文件放入同一个 Release：
+流程拆成两个 workflow：
 
-- `ytdlp.jsplugin.zip` 与包内同源的 `plugin.json`
+1. `Release Plugin` 完成插件检查、构建并立即创建 Release，上传 `ytdlp.jsplugin.zip`、包内同源 `plugin.json` 和插件校验和 `SHA256SUMS`。
+2. `Build yt-dlp ARMv7` 由成功完成的发布 workflow 异步触发，通过发布上下文绑定准确的 Release 标签与源码提交。它解析 yt-dlp 最新正式版标签、检出源码，用固定 Python Alpine 镜像和上游锁定的 Python 依赖，通过官方 PyInstaller 入口构建 `linux/arm/v7` 单文件。无 Python、uid=1000 的 Alpine 3.24 容器验证版本、提取器、真实 HTTP 下载和 HTTPS 解析后，追加附件到同一个 Release，并更新说明中的 ARM 状态。
+
+ARM 构建不阻塞插件发布；失败不撤销已发布插件。可在 `Build yt-dlp ARMv7` 中手动填写已有 Release 的标签重跑，成功后补齐：
+
 - `yt-dlp_musllinux_armv7l`
-- `SHA256SUMS`、`yt-dlp-build.json`（上游版本与提交、插件提交、构建环境）、Python 依赖清单和许可证
+- `yt-dlp-SHA256SUMS`、`yt-dlp-build.json`（上游版本与提交、插件提交、构建环境）、Python 依赖清单和许可证
 
 预发布不会回写根目录 `plugin.json` / `package.json`，保持正式插件源不变。正式发布才同步构建后的入口、哈希、版本和下载链接。ARM 二进制通过插件安装器随插件版本更新，不使用 yt-dlp 自更新。
 

@@ -1,12 +1,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { isReleaseVersion } from './release-version.mjs';
 
 const {
   VERSION,
   TAG,
   GITHUB_REPOSITORY = 'hanxi/songloft-plugin-ytdlp',
 } = process.env;
-if (!/^\d+\.\d+\.\d+$/.test(VERSION || '') || TAG !== `v${VERSION}`) {
-  throw new Error('VERSION must be Y.M.D and TAG must match vVERSION');
+if (!isReleaseVersion(VERSION || '') || TAG !== `v${VERSION}`) {
+  throw new Error('VERSION must be Y.M.D.N and TAG must match vVERSION');
 }
 for (const file of ['package.json', 'plugin.json']) {
   const manifest = JSON.parse(readFileSync(file, 'utf8'));

@@ -275,7 +275,12 @@ export async function downloadBinary(): Promise<{
 
   const release = await getLatestRelease();
   if (!release) {
-    return { success: false, error: 'Failed to fetch latest release info' };
+    return {
+      success: false,
+      error: asset.repository
+        ? 'ARMv7 二进制尚未就绪或暂时无法访问。请查看本插件 Release 的独立构建状态，稍后重试'
+        : 'Failed to fetch latest release info',
+    };
   }
 
   const settings = await getSettings();

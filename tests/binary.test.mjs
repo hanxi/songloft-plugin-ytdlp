@@ -158,7 +158,9 @@ for (const platform of [
 
 test('a missing ARM asset fails before any download', async () => {
   const { api, downloads } = harness({ missingAsset: true });
-  assert.equal((await api.downloadBinary()).success, false);
+  const result = await api.downloadBinary();
+  assert.equal(result.success, false);
+  assert.match(result.error, /尚未就绪/);
   assert.equal(downloads.length, 0);
 });
 

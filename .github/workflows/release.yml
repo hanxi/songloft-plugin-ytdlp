@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（留空自动生成 Y.M.D）'
+        description: '版本号（留空按北京时间自动生成 Y.M.D.N，末位从 0 递增）'
         required: false
         default: ''
       prerelease:
@@ -19,11 +19,13 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -39,69 +41,35 @@ jobs:
           pnpm run typecheck
           pnpm test
 
-      - name: Resolve plugin and upstream versions
+      - name: Resolve plugin version
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${INPUT_VERSION:-$(date +'%Y.%-m.%-d')}"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION=$(node scripts/release-version.mjs)
           TAG="v${VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; use a new version" >&2
             exit 1
           fi
-          YTDLP_VERSION=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)
-          [[ "$YTDLP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ytdlp_version=$YTDLP_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout resolved yt-dlp release
-        uses: actions/checkout@v4
-        with:
-          repository: yt-dlp/yt-dlp
-          ref: ${{ steps.version.outputs.ytdlp_version }}
-          path: upstream-yt-dlp
-          persist-credentials: false
-
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build standalone ARMv7 musl yt-dlp
-        uses: docker/build-push-action@v6
-        with:
-          context: upstream-yt-dlp
-          file: scripts/armv7/Dockerfile
-          platforms: linux/arm/v7
-          build-args: YTDLP_VERSION=${{ steps.version.outputs.ytdlp_version }}
-          outputs: type=local,dest=release-assets
-          cache-from: type=gha,scope=ytdlp-armv7
-          cache-to: type=gha,mode=max,scope=ytdlp-armv7
-
-      - name: Verify in clean Alpine without Python
-        env:
-          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
-        run: node scripts/armv7/smoke.mjs release-assets "$YTDLP_VERSION"
 
       - name: Build matching plugin and release manifest
         env:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
-          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
         run: |
           node scripts/prepare-release.mjs
           pnpm test
           pnpm run build
+          mkdir -p release-assets
           cp dist/ytdlp.jsplugin.zip release-assets/
           unzip -p dist/ytdlp.jsplugin.zip plugin.json > release-assets/plugin.json
           node scripts/release-info.mjs
           cd release-assets
-          sha256sum yt-dlp* ytdlp.jsplugin.zip plugin.json > SHA256SUMS
+          sha256sum ytdlp.jsplugin.zip plugin.json > SHA256SUMS
 
       - name: Preserve verified release assets
         uses: actions/upload-artifact@v4
@@ -110,11 +78,10 @@ jobs:
           path: release-assets/
           compression-level: 0
 
-      - name: Create release with plugin and yt-dlp
+      - name: Create plugin release without waiting for ARM build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-          YTDLP_VERSION: ${{ steps.version.outputs.ytdlp_version }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           FLAGS=()
@@ -123,14 +90,15 @@ jobs:
           fi
           gh release create "$TAG" \
             release-assets/ytdlp.jsplugin.zip \
-            "release-assets/yt-dlp_musllinux_armv7l#yt-dlp ${YTDLP_VERSION}" \
-            release-assets/yt-dlp-LICENSE \
-            release-assets/yt-dlp-THIRD_PARTY_LICENSES.txt \
-            release-assets/yt-dlp-python-requirements.txt \
-            release-assets/yt-dlp-build.json \
             release-assets/plugin.json release-assets/SHA256SUMS \
             --target "$GITHUB_SHA" --title "$TAG" \
             --notes-file release-assets/release-notes.md "${FLAGS[@]}"
+
+      - name: Pass release identity to asynchronous ARM build
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-context
+          path: release-assets/release-context.json
 
       - name: Update stable registry manifest
         if: ${{ !inputs.prerelease }}
