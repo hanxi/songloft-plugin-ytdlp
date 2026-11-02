@@ -29,6 +29,8 @@ https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
 3. 点击「提取」获取歌曲列表
 4. 选择「仅导入」或「导入并下载」，执行导入
 
+在「下载管理」中可暂停、恢复或取消批次。取消会停止后续歌曲和重试；当前已开始的单首下载会继续到结束，期间显示「取消中」。已下载文件保留，批次结束后可清除记录并开始新批次。
+
 ### ARMv7 / Alpine
 
 - ARMv7（`armv7l`，Songloft 平台字段为 `linux-arm`）使用本插件仓库同版本 Release 中的 `yt-dlp_musllinux_armv7l`，内置 Python，适用于 Alpine / musl；不支持 ARMv6 或 glibc 系统。

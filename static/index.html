@@ -217,6 +217,10 @@
                         <span class="material-symbols-outlined">play_arrow</span>
                         <span>恢复</span>
                     </button>
+                    <button id="btn-dl-cancel" class="btn-text hidden">
+                        <span class="material-symbols-outlined">cancel</span>
+                        <span>取消下载</span>
+                    </button>
                     <button id="btn-dl-retry" class="btn-text hidden">
                         <span class="material-symbols-outlined">replay</span>
                         <span>重试失败</span>
@@ -226,6 +230,7 @@
                         <span>清除</span>
                     </button>
                 </div>
+                <p id="dl-cancel-note" class="progress-text hidden">正在取消，等待当前歌曲结束；后续歌曲不会继续下载，已下载文件会保留。</p>
                 <!-- 下载歌曲列表 -->
                 <div id="dl-song-list" class="song-list"></div>
                 <div id="dl-pagination" class="pagination hidden">

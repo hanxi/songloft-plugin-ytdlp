@@ -40,7 +40,7 @@ export interface BatchResult {
   error?: string;
 }
 
-export type BatchSongStatus = 'pending' | 'downloading' | 'ok' | 'failed';
+export type BatchSongStatus = 'pending' | 'downloading' | 'ok' | 'failed' | 'cancelled';
 
 export interface BatchSongInfo {
   song_id: number;
@@ -56,6 +56,7 @@ export interface BatchTask {
   total: number;
   done: boolean;
   paused: boolean;
+  cancelled: boolean;
   playlist_name?: string;
 }
 

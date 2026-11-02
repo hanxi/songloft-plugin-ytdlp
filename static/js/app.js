@@ -43,6 +43,7 @@ let resultPage = 0;
 let resultPageSize = 30;
 
 let downloadPollTimer = null;
+let downloadPollGeneration = 0;
 let lastProgress = null;
 let dlPage = 0;
 const DL_PAGE_SIZE = 30;
@@ -394,7 +395,8 @@ document.getElementById('btn-download-batch').addEventListener('click', async ()
     if (songIds.length === 0) { showSnackbar('请选择歌曲'); return; }
 
     try {
-        await API.apiPost('/api/download-batch', { song_ids: songIds });
+        const resp = await API.apiPost('/api/download-batch', { song_ids: songIds });
+        if (resp.error) throw new Error(resp.error);
         startDownloadPolling();
     } catch (e) {
         showSnackbar('下载启动失败: ' + e.message);
@@ -402,17 +404,37 @@ document.getElementById('btn-download-batch').addEventListener('click', async ()
 });
 
 document.getElementById('btn-dl-clear').addEventListener('click', async () => {
-    await API.apiPost('/api/download-batch/clear', {});
-    document.getElementById('download-progress-card').classList.add('hidden');
-    document.getElementById('btn-dl-clear').classList.add('hidden');
-    lastProgress = null;
-    dlPage = 0;
-    stopDownloadPolling();
+    try {
+        const resp = await API.apiPost('/api/download-batch/clear', {});
+        if (resp.error) throw new Error(resp.error);
+        stopDownloadPolling();
+        document.getElementById('download-progress-card').classList.add('hidden');
+        lastProgress = null;
+        dlPage = 0;
+    } catch (e) {
+        showSnackbar('清除失败: ' + e.message);
+    }
+});
+
+document.getElementById('btn-dl-cancel').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-dl-cancel');
+    btn.disabled = true;
+    try {
+        const resp = await API.apiPost('/api/download-batch/cancel', {});
+        if (resp.error) throw new Error(resp.error);
+        // 废弃取消前已发出的轮询，避免旧进度覆盖取消状态。
+        startDownloadPolling();
+    } catch (e) {
+        showSnackbar('取消失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
 });
 
 document.getElementById('btn-dl-pause').addEventListener('click', async () => {
     try {
-        await API.apiPost('/api/download-batch/pause', {});
+        const resp = await API.apiPost('/api/download-batch/pause', {});
+        if (resp.error) throw new Error(resp.error);
         document.getElementById('btn-dl-pause').classList.add('hidden');
         document.getElementById('btn-dl-resume').classList.remove('hidden');
     } catch (e) {
@@ -422,7 +444,8 @@ document.getElementById('btn-dl-pause').addEventListener('click', async () => {
 
 document.getElementById('btn-dl-resume').addEventListener('click', async () => {
     try {
-        await API.apiPost('/api/download-batch/resume', {});
+        const resp = await API.apiPost('/api/download-batch/resume', {});
+        if (resp.error) throw new Error(resp.error);
         document.getElementById('btn-dl-resume').classList.add('hidden');
         document.getElementById('btn-dl-pause').classList.remove('hidden');
     } catch (e) {
@@ -440,11 +463,12 @@ document.getElementById('btn-dl-retry').addEventListener('click', async () => {
     failedSongs.forEach(s => { songTitles[s.song_id] = s.title; });
 
     try {
-        await API.apiPost('/api/download-batch', {
+        const resp = await API.apiPost('/api/download-batch', {
             song_ids: songIds,
             playlist_name: lastProgress.playlist_name || undefined,
             song_titles: songTitles,
         });
+        if (resp.error) throw new Error(resp.error);
         dlPage = 0;
         startDownloadPolling();
     } catch (e) {
@@ -470,6 +494,7 @@ function startDownloadPolling() {
 }
 
 function stopDownloadPolling() {
+    downloadPollGeneration++;
     if (downloadPollTimer) {
         clearInterval(downloadPollTimer);
         downloadPollTimer = null;
@@ -477,8 +502,10 @@ function stopDownloadPolling() {
 }
 
 async function pollDownloadProgress() {
+    const generation = downloadPollGeneration;
     try {
         const resp = await API.apiGet('/api/download-batch/progress');
+        if (generation !== downloadPollGeneration) return;
         if (!resp.active) {
             stopDownloadPolling();
             document.getElementById('download-progress-card').classList.add('hidden');
@@ -489,7 +516,7 @@ async function pollDownloadProgress() {
         if (resp.done) {
             stopDownloadPolling();
             document.getElementById('btn-dl-clear').classList.remove('hidden');
-            showSnackbar(`下载完成: 成功 ${resp.success}, 失败 ${resp.failed}`);
+            showSnackbar(`${resp.cancelled ? '下载已取消' : '下载完成'}: 成功 ${resp.success}, 失败 ${resp.failed}`);
         }
     } catch { /* ignore */ }
 }
@@ -499,6 +526,7 @@ const STATUS_ICON = {
     downloading: 'autorenew',
     ok: 'check_circle',
     failed: 'error',
+    cancelled: 'cancel',
 };
 
 function renderDownloadProgress(resp) {
@@ -513,7 +541,10 @@ function renderDownloadProgress(resp) {
     // 状态徽标
     const badge = document.getElementById('dl-status-badge');
     badge.classList.remove('badge--paused', 'badge--done', 'badge--failed');
-    if (resp.done) {
+    if (resp.cancelled) {
+        badge.textContent = resp.done ? '已取消' : '取消中';
+        badge.classList.add('badge--paused');
+    } else if (resp.done) {
         badge.textContent = resp.failed > 0 ? '已完成（部分失败）' : '已完成';
         badge.classList.add(resp.failed > 0 ? 'badge--failed' : 'badge--done');
     } else if (resp.paused) {
@@ -528,6 +559,9 @@ function renderDownloadProgress(resp) {
     const resumeBtn = document.getElementById('btn-dl-resume');
     const retryBtn = document.getElementById('btn-dl-retry');
     const clearBtn = document.getElementById('btn-dl-clear');
+    const cancelBtn = document.getElementById('btn-dl-cancel');
+    cancelBtn.classList.toggle('hidden', !!resp.done || !!resp.cancelled);
+    document.getElementById('dl-cancel-note').classList.toggle('hidden', !resp.cancelled || !!resp.done);
 
     if (resp.done) {
         pauseBtn.classList.add('hidden');
@@ -537,8 +571,8 @@ function renderDownloadProgress(resp) {
     } else {
         clearBtn.classList.add('hidden');
         retryBtn.classList.add('hidden');
-        pauseBtn.classList.toggle('hidden', !!resp.paused);
-        resumeBtn.classList.toggle('hidden', !resp.paused);
+        pauseBtn.classList.toggle('hidden', !!resp.paused || !!resp.cancelled);
+        resumeBtn.classList.toggle('hidden', !resp.paused || !!resp.cancelled);
     }
 
     renderDownloadSongList(resp.songs || []);
@@ -574,7 +608,7 @@ function renderDownloadSongList(songs) {
             </div>
         `;
         // title 属性用 DOM 赋值而非字符串插值，避免 error 消息含引号时破坏属性边界
-        div.querySelector('.song-status-icon').title = song.error || '';
+        div.querySelector('.song-status-icon').title = song.status === 'cancelled' ? '已取消' : (song.error || '');
         list.appendChild(div);
     });
 

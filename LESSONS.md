@@ -13,3 +13,12 @@
 - CI 验证夹具：首次[独立构建](https://github.com/hanxi/songloft-plugin-ytdlp/actions/runs/40628366392)成功生成 ARM ELF、musl 加载器和正确版本，但导出到宿主后 uid=1000 的验证报 `Permission denied`。[修复重跑](https://github.com/hanxi/songloft-plugin-ytdlp/actions/runs/40630315530)确认导出目录为 0700、二进制为 0755；准备夹具时将两者设为 0755，继续保留非 root 和无 Python 条件。工作流代码 `5c4edf5cc2b356f6c8509afba3b24c708faa283a` 在 QEMU ARMv7 / Alpine 3.24 / uid=1000 下通过版本（2.40 秒）、提取器、真实 HTTP 下载及 HTTPS 解析，附件成功追加到 `v2026.10.28.0`。运行检查失败时只保存诊断 artifact，不上传 Release。
 - 发布验收：18 项测试及四段版本打包演练通过；发布包和全部 ARM 附件 SHA-256 复核通过。实际安装包在独立 Go 宿主的真实 QuickJS/command 桥中完成下载、chmod、执行和状态回读，落盘哈希一致。环境为 ARMv7 Alpine 用户态 + QEMU、静态 amd64 Go 宿主，并在临时数据库覆盖 `server_platform=linux-arm`；本机 GitHub 直连触发现有宿主 120 秒下载超时，因此成功安装使用现有 GitHub 代理设置及提供同一已校验文件的本地代理夹具。该结果不冒充 ARM Go 宿主、直连网络或真机验收。证据 `/tmp/songloft-544-armv7/integration-{initial,pending,ready}.json`、`retry-ci.log` 和 `published/`。
 - Seen 1× (2026-10-28)。
+
+## BATCH-001：取消必须唤醒等待并保留当前调用的真实结果
+
+- 范围：下载批次，songloft-org/songloft#544；基线 `10717798e8131c144ae10315f6b709bd635df982`。
+- 证据：2026-11-02，用户报告只能暂停不能取消；原清除逻辑丢弃暂停回调，且异步循环读取全局任务，新批次可能被旧回调写入。
+- 规则：每批次独立持有状态；取消唤醒暂停、下载间隔和重试等待；当前宿主单首调用结束前不释放运行槽位，不宣称立即中断。
+- Done right：新增回归旧代码失败 9 项；最终全套 31 项通过，类型检查、QuickJS 构建及校验通过。Docker Chrome 操作真实隔离宿主，验证运行中取消、自动暂停后取消、清除与新批次；SQLite 确认当前歌曲落地、队列歌曲仍 remote。证据 `/tmp/songloft-544-cancel/`。初版音频夹具仅 4 秒，触发现有 30 秒校验下限；最终使用 40 秒自生成音频及受控解析器。
+- Not run：玩客云真机、ARMv7 本轮运行、真实第三方站点；尚未提交、推送或发布。
+- Seen 1× (2026-11-02)。

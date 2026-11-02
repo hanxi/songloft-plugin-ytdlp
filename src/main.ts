@@ -4,7 +4,7 @@ import { jsonResponse, createRouter } from '@songloft/plugin-sdk';
 import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask, getBinaryInfo, startUpload, appendUploadChunk, finalizeUpload } from './binary';
 import { extractFromURL } from './extractor';
 import { importSongs } from './importer';
-import { startBatchDownload, getBatchTask, clearBatchTask, pauseBatch, resumeBatch } from './downloader';
+import { startBatchDownload, getBatchTask, clearBatchTask, pauseBatch, resumeBatch, cancelBatch, isBatchRunning, BatchBusyError } from './downloader';
 import { musicUrlHandler } from './music-url';
 import { getSettings, saveSettings } from './settings';
 import { toponeHandler } from './search';
@@ -112,6 +112,7 @@ router.post('/api/import', async (req) => {
 // --- Import + Download ---
 
 router.post('/api/import-download', async (req) => {
+  if (isBatchRunning()) return jsonResponse({ error: new BatchBusyError().message }, 409);
   const { items, playlist_name, playlist_id } = JSON.parse(String(req.body)) as {
     items: ExtractedItem[];
     playlist_name?: string;
@@ -134,7 +135,7 @@ router.post('/api/import-download', async (req) => {
     });
   } catch (e: any) {
     logError(`[import-download] 导入下载失败: ${e?.message || String(e)}`);
-    return jsonResponse({ error: e.message }, 500);
+    return jsonResponse({ error: e.message }, e instanceof BatchBusyError ? 409 : 500);
   }
 });
 
@@ -151,8 +152,12 @@ router.post('/api/download-batch', async (req) => {
   }
 
   const titlesMap = song_titles ? new Map(Object.entries(song_titles).map(([k, v]) => [Number(k), v])) : undefined;
-  await startBatchDownload(song_ids, { playlistName: playlist_name, songTitles: titlesMap });
-  return jsonResponse({ started: true, total: song_ids.length });
+  try {
+    await startBatchDownload(song_ids, { playlistName: playlist_name, songTitles: titlesMap });
+    return jsonResponse({ started: true, total: song_ids.length });
+  } catch (e: any) {
+    return jsonResponse({ error: e.message }, e instanceof BatchBusyError ? 409 : 500);
+  }
 });
 
 router.get('/api/download-batch/progress', async () => {
@@ -168,6 +173,7 @@ router.get('/api/download-batch/progress', async () => {
     total: task.total,
     done: task.done,
     paused: task.paused,
+    cancelled: task.cancelled,
     success,
     failed,
     results: task.results,
@@ -186,7 +192,13 @@ router.post('/api/download-batch/resume', async () => {
   return jsonResponse({ ok: true });
 });
 
+router.post('/api/download-batch/cancel', async () => {
+  cancelBatch();
+  return jsonResponse({ ok: true });
+});
+
 router.post('/api/download-batch/clear', async () => {
+  if (isBatchRunning()) return jsonResponse({ error: new BatchBusyError().message }, 409);
   clearBatchTask();
   return jsonResponse({ ok: true });
 });

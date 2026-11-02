@@ -27,6 +27,8 @@ https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
 3. Click Extract to load the track list.
 4. Choose Import Only or Import and Download.
 
+In Download Management, pause, resume, or cancel a batch. Cancellation stops queued tracks and retries. An in-flight track finishes before the batch stops, with Cancelling shown in the meantime. Downloaded files are retained. Clear the finished batch to start another.
+
 ### ARMv7 / Alpine
 
 - ARMv7 (`armv7l`, reported by Songloft as `linux-arm`) uses `yt-dlp_musllinux_armv7l` from this plugin repository's matching Release. Python is bundled. The binary targets Alpine / musl; ARMv6 and glibc systems are not supported.

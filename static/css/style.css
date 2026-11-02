@@ -518,6 +518,7 @@
 .song-status-icon.status-downloading { color: var(--md-primary); animation: spin 1.2s linear infinite; }
 .song-status-icon.status-ok { color: var(--md-success, #4caf50); }
 .song-status-icon.status-failed { color: var(--md-error); }
+.song-status-icon.status-cancelled { color: var(--md-on-surface-variant); }
 
 @keyframes spin {
     from { transform: rotate(0deg); }
