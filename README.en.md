@@ -29,6 +29,8 @@ https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
 
 On Linux x86-64 and ARM64, automatic installation and the manual download link select an upstream binary based on the server's libc. If the settings page reports that yt-dlp cannot run, select **Reinstall yt-dlp** and check the error details below the status.
 
+Automatic installation checks the downloaded file size and runs the new binary to verify its version before replacing the existing file. If the size check fails, try another GitHub proxy.
+
 In Download Management, pause, resume, or cancel a batch. Cancellation stops queued tracks and retries. An in-flight track finishes before the batch stops, with Cancelling shown in the meantime. Downloaded files are retained. Clear the finished batch to start another.
 
 ### ARMv7 / Alpine

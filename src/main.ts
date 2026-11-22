@@ -1,7 +1,7 @@
 /// <reference types="@songloft/plugin-sdk" />
 
 import { jsonResponse, createRouter } from '@songloft/plugin-sdk';
-import { detectPlatform, getStatus, getLatestRelease, startInstall, getInstallTask, getBinaryInfo, startUpload, appendUploadChunk, finalizeUpload } from './binary';
+import { getStatus, getLatestRelease, startInstall, getInstallTask, getBinaryInfo, startUpload, appendUploadChunk, finalizeUpload } from './binary';
 import { extractFromURL } from './extractor';
 import { importSongs } from './importer';
 import { startBatchDownload, getBatchTask, clearBatchTask, pauseBatch, resumeBatch, cancelBatch, isBatchRunning, BatchBusyError } from './downloader';
@@ -331,7 +331,6 @@ function registerSearchProviderToMiot(): void {
 
 globalThis.onInit = async () => {
   await restoreLogs();
-  await detectPlatform();
   registerSearchProviderToMiot();
 };
 

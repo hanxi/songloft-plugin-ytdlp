@@ -32,15 +32,25 @@ function harness({
   exists = true,
   runnable = true,
   executionError = false,
+  platformFailures = 0,
+  releaseSize = 40_524_824,
+  receivedSize = releaseSize,
+  downloadError = '',
 } = {}) {
   const fetches = [],
     downloads = [],
-    executions = [];
+    executions = [],
+    renames = [];
+  const files = new Map(exists ? [[`bin/${platform.startsWith('windows') ? 'yt-dlp.exe' : 'yt-dlp'}`, 100]] : []);
   const context = createContext({
     console: { log() {} },
     fetch: async (url) => {
       fetches.push(url);
       if (url.endsWith('/configs/server_platform')) {
+        if (platformFailures > 0) {
+          platformFailures--;
+          throw new Error('host not ready');
+        }
         return {
           ok: true,
           text: async () => JSON.stringify({ value: platform }),
@@ -58,6 +68,7 @@ function harness({
                 ? [{
                     name: 'yt-dlp_musllinux_armv7l',
                     label: 'yt-dlp 2026.10.26',
+                    size: releaseSize,
                     browser_download_url: `${customBase}/yt-dlp_musllinux_armv7l`,
                   }]
                 : [
@@ -66,6 +77,7 @@ function harness({
                     'yt-dlp_macos', 'yt-dlp_arm64.exe',
                   ].map((name) => ({
                     name,
+                    size: releaseSize,
                     browser_download_url: `https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/${name}`,
                   })),
           }),
@@ -78,8 +90,13 @@ function harness({
       },
       storage: { get: async () => ({ github_proxy: proxy }) },
       command: {
-        exists: async () => exists,
-        download: async (...args) => downloads.push(args),
+        exists: async (name) => files.has(`bin/${name}`),
+        download: async (url, name) => {
+          downloads.push([url, name]);
+          files.set(`bin/${name}`, receivedSize);
+          if (downloadError) throw new Error(downloadError);
+        },
+        deleteBin: async (name) => { files.delete(`bin/${name}`); },
         exec: async (...args) => {
           executions.push(args);
           if (args[0] === 'chmod')
@@ -96,16 +113,25 @@ function harness({
           };
         },
       },
-      fs: { writeFile: async () => {}, appendFile: async () => {} },
+      fs: {
+        writeFile: async () => {},
+        appendFile: async () => {},
+        stat: async (path) => ({ size: files.get(path) }),
+        rename: async (from, to) => {
+          renames.push([from, to]);
+          files.set(to, files.get(from));
+          files.delete(from);
+        },
+      },
       log: { info() {}, error() {} },
     },
   });
   runInContext(code, context);
-  return { api: context.binary, fetches, downloads, executions };
+  return { api: context.binary, fetches, downloads, executions, renames, files };
 }
 
 test('Go linux-arm uses the matching plugin release even when it is a prerelease', async () => {
-  const { api, fetches, downloads, executions } = harness();
+  const { api, fetches, downloads, executions, renames } = harness();
   const result = await api.downloadBinary();
   assert.equal(result.success, true);
   assert.equal(result.version, '2026.10.26');
@@ -116,11 +142,67 @@ test('Go linux-arm uses the matching plugin release even when it is a prerelease
   );
   assert(!fetches.some((url) => url.endsWith('/releases/latest')));
   assert.equal(downloads[0][0], `${customBase}/yt-dlp_musllinux_armv7l`);
-  assert.equal(downloads[0][1], 'yt-dlp');
+  const staged = downloads[0][1];
+  assert.notEqual(staged, 'yt-dlp');
   assert.equal(
     JSON.stringify(executions[0].slice(0, 2)),
-    JSON.stringify(['chmod', ['+x', 'bin/yt-dlp']]),
+    JSON.stringify(['chmod', ['+x', `bin/${staged}`]]),
   );
+  assert.deepEqual(renames, [[`bin/${staged}`, 'bin/yt-dlp']]);
+});
+
+test('a failed platform lookup is retried and the ARM64 installer uses the ARM64 asset', async () => {
+  const { api, fetches, downloads } = harness({ platform: 'linux-arm64', platformFailures: 1 });
+  await api.detectPlatform();
+  assert.equal((await api.downloadBinary()).success, true);
+  assert.match(downloads[0][0], /\/yt-dlp_musllinux_aarch64$/);
+  assert.equal(fetches.filter((url) => url.endsWith('/configs/server_platform')).length, 2);
+});
+
+test('an unavailable server platform cannot fall back to an x86-64 download', async () => {
+  const { api, downloads } = harness({ platform: 'linux-arm64', platformFailures: 1 });
+  const result = await api.downloadBinary();
+  assert.equal(result.success, false);
+  assert.match(result.error, /服务器平台/);
+  assert.equal(downloads.length, 0);
+});
+
+test('an HTTP 200 partial binary is rejected without executing it or replacing the installed file', async () => {
+  const { api, files, renames, executions } = harness({ receivedSize: 10_000_000 });
+  const result = await api.downloadBinary();
+  assert.equal(result.success, false);
+  assert.match(result.error, /文件大小不符.*10000000.*40524824/);
+  assert.deepEqual(executions, []);
+  assert.deepEqual(renames, []);
+  assert.deepEqual([...files], [['bin/yt-dlp', 100]]);
+});
+
+test('an interrupted update cleans up its candidate and preserves the installed file', async () => {
+  const { api, files } = harness({ downloadError: 'connection closed' });
+  const result = await api.downloadBinary();
+  assert.equal(result.success, false);
+  assert.match(result.error, /connection closed/);
+  assert.deepEqual([...files], [['bin/yt-dlp', 100]]);
+});
+
+test('a binary that cannot run does not replace the installed file', async () => {
+  const { api, files, downloads, executions, renames } = harness({ runnable: false });
+  const result = await api.downloadBinary();
+  assert.equal(result.success, false);
+  assert.equal(executions[1][0], downloads[0][1]);
+  assert.deepEqual(renames, []);
+  assert.deepEqual([...files], [['bin/yt-dlp', 100]]);
+});
+
+test('a Windows update executes the candidate with its .exe extension before replacement', async () => {
+  const { api, files, downloads, executions, renames } = harness({ platform: 'windows-arm64' });
+  assert.equal((await api.downloadBinary()).success, true);
+  const staged = downloads[0][1];
+  assert.match(staged, /\.exe$/);
+  assert.notEqual(staged, 'yt-dlp.exe');
+  assert.deepEqual(executions.map((args) => args[0]), [staged]);
+  assert.deepEqual(renames, [[`bin/${staged}`, 'bin/yt-dlp.exe']]);
+  assert.deepEqual([...files], [['bin/yt-dlp.exe', 40_524_824]]);
 });
 
 test('manual download fallback and GitHub proxy keep the same custom release', async () => {

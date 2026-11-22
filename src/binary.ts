@@ -51,9 +51,10 @@ export async function detectPlatform(): Promise<string> {
       'GET',
       '/api/v1/configs/server_platform',
     );
-    detectedPlatform = resp?.value || 'linux-amd64';
+    const platform = resp?.value?.trim();
+    if (platform) detectedPlatform = platform;
   } catch {
-    detectedPlatform = 'linux-amd64';
+    // Retry on demand if the host API is temporarily unavailable.
   }
   return detectedPlatform;
 }
@@ -77,9 +78,13 @@ async function getPlatformAsset(platform: string): Promise<PlatformAsset | undef
 const REINSTALL_HINT =
   '请在插件设置中重新安装 yt-dlp，并检查服务器架构、运行库和执行权限';
 
-export async function execYtdlp(args: string[], timeout: number) {
+export async function execYtdlp(args: string[], timeout: number, binName?: string) {
+  if (!binName) {
+    await detectPlatform();
+    binName = getBinName();
+  }
   try {
-    return await songloft.command.exec(getBinName(), args, { timeout });
+    return await songloft.command.exec(binName, args, { timeout });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (detail.includes('not found in plugin bin/ or system PATH')) {
@@ -95,8 +100,8 @@ export async function execYtdlp(args: string[], timeout: number) {
   }
 }
 
-async function probeVersion(): Promise<string> {
-  const result = await execYtdlp(['--version'], 5000);
+async function probeVersion(binName = getBinName()): Promise<string> {
+  const result = await execYtdlp(['--version'], 15000, binName);
   const version = result.stdout.trim();
   if (result.exitCode !== 0 || !version) {
     const detail = result.stderr.trim() || `--version 退出码为 ${result.exitCode}`;
@@ -129,6 +134,7 @@ interface ReleaseInfo {
     name: string;
     browser_download_url: string;
     label?: string | null;
+    size: number;
   }[];
 }
 
@@ -145,6 +151,7 @@ function releaseURL(asset: PlatformAsset, api: boolean): string {
 async function fetchRelease(asset: PlatformAsset): Promise<{
   version: string;
   downloadUrl: string;
+  size: number;
 } | null> {
   try {
     const resp = await fetch(releaseURL(asset, true), {
@@ -162,7 +169,7 @@ async function fetchRelease(asset: PlatformAsset): Promise<{
       asset.repository && found.label?.startsWith('yt-dlp ')
         ? found.label.slice('yt-dlp '.length)
         : release.tag_name;
-    return { version, downloadUrl: found.browser_download_url };
+    return { version, downloadUrl: found.browser_download_url, size: found.size };
   } catch {
     return null;
   }
@@ -170,7 +177,8 @@ async function fetchRelease(asset: PlatformAsset): Promise<{
 
 export async function getLatestRelease() {
   const asset = await getPlatformAsset(await detectPlatform());
-  return asset ? fetchRelease(asset) : null;
+  const release = asset ? await fetchRelease(asset) : null;
+  return release ? { version: release.version, downloadUrl: release.downloadUrl } : null;
 }
 
 function applyGithubProxy(url: string, proxy: string): string {
@@ -310,6 +318,9 @@ export async function downloadBinary(): Promise<{
   error?: string;
 }> {
   const platform = await detectPlatform();
+  if (!platform) {
+    return { success: false, error: '无法读取 Songloft 服务器平台，请稍后重试' };
+  }
   const asset = await getPlatformAsset(platform);
   if (!asset) {
     return { success: false, error: `Unsupported platform: ${platform}` };
@@ -324,6 +335,9 @@ export async function downloadBinary(): Promise<{
         : 'Failed to fetch latest release info',
     };
   }
+  if (!Number.isSafeInteger(release.size) || release.size <= 0) {
+    return { success: false, error: 'GitHub Release 未提供有效的 yt-dlp 文件大小，请稍后重试' };
+  }
 
   const settings = await getSettings();
   const downloadUrl = applyGithubProxy(
@@ -332,21 +346,36 @@ export async function downloadBinary(): Promise<{
   );
 
   logInfo(
-    `[install] 下载 yt-dlp ${platform} ${release.version} from ${downloadUrl}`,
+    `[install] 下载 ${asset.url} ${release.version}（${platform}，${release.size} 字节）`,
   );
+  const candidate = `download-${Date.now()}-${Math.random().toString(36).slice(2)}-${asset.file}`;
+  const candidatePath = `bin/${candidate}`;
   try {
-    await songloft.command.download(downloadUrl, asset.file);
-
-    if (!platform.startsWith('windows')) {
-      await songloft.command.exec('chmod', ['+x', `bin/${asset.file}`], {
-        timeout: 5000,
-      });
+    await songloft.command.download(downloadUrl, candidate);
+    const { size } = await songloft.fs.stat(candidatePath);
+    if (size !== release.size) {
+      throw new Error(`yt-dlp 文件大小不符，收到 ${size} 字节，应为 ${release.size} 字节。请重试或切换 GitHub 代理`);
     }
 
-    const version = await probeVersion();
+    if (!platform.startsWith('windows')) {
+      const chmod = await songloft.command.exec('chmod', ['+x', candidatePath], {
+        timeout: 5000,
+      });
+      if (chmod.exitCode !== 0) {
+        throw new Error(`无法设置 yt-dlp 执行权限。${chmod.stderr.trim()}`);
+      }
+    }
+
+    const version = await probeVersion(candidate);
+    await songloft.fs.rename(candidatePath, `bin/${asset.file}`);
     logInfo(`[install] yt-dlp 安装成功: ${version}`);
     return { success: true, version };
   } catch (e: any) {
+    try {
+      await songloft.command.deleteBin(candidate);
+    } catch (cleanupError) {
+      logError(`[install] 清理下载文件失败: ${String(cleanupError)}`);
+    }
     logError(`[install] yt-dlp 安装失败: ${e?.message || String(e)}`);
     return { success: false, error: e?.message || String(e) };
   }
