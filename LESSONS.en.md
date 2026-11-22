@@ -22,3 +22,11 @@ Keep synchronized with [Chinese](LESSONS.md). Shared host rules are in the paren
 - Done right: 9 new regressions failed on the old implementation; all 31 final tests, type checking, QuickJS build and validation passed. Docker Chrome exercised the isolated real host: cancellation in flight, cancellation after automatic pause, clearing and a new batch. SQLite confirmed the current track became local and the queued track stayed remote. Evidence: `/tmp/songloft-544-cancel/`. The initial 4-second audio fixture hit the existing 30-second validation minimum; final checks used 40-second generated audio and a controlled resolver.
 - Not run: physical OneCloud, ARMv7 execution in this run, or real third-party sites. Not committed, pushed or published.
 - Seen 1× (2026-11-02).
+
+## BIN-001: Linux binary selection must check the host's libc
+
+- Scope: yt-dlp installation and diagnostics on Linux x86-64 and ARM64. [hanxi/songloft-plugin-ytdlp#9](https://github.com/hanxi/songloft-plugin-ytdlp/issues/9), plugin baseline `85687d23e90a34784bdcca4012cda1d1135f5eea`.
+- Evidence: release `v2026.10.28.0` hit `fork/exec … no such file or directory` with the upstream musl binary present on Debian 12 x86-64. Settings showed it as installed with a blank version. The ELF requested `/lib/ld-musl-x86_64.so.1`, which the host lacked. Running the glibc binary on Alpine 3.24.1 also reproduced a missing loader. The reporter's device and binary origin remain unverified.
+- Example: run `getconf GNU_LIBC_VERSION` on the Songloft server to identify glibc. Share asset selection between automatic installation and the manual download link. Base the settings status on a successful `--version` and display the ELF loader path when the host reports it missing.
+- Verification: seven regressions failed against the old source. The fix passed all 40 tests, type checking, QuickJS build, and validation. Docker Chrome clicked **Reinstall yt-dlp** on a real local Songloft host. A local proxy fixture served the SHA-256-verified upstream glibc asset, and the host reported version `2026.10.26` with a matching file hash. The upstream musl asset reported the same version as a non-root user on Alpine. Live Bilibili search for “单车” returned HTTP 412 on an early attempt. A later check found five results and verified all five in a temporary playlist after import.
+- Seen 1× (2026-11-22).

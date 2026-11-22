@@ -626,6 +626,7 @@ async function loadStatus() {
         const status = await API.apiGet('/api/status');
         const dot = document.getElementById('ytdlp-status-dot');
         const text = document.getElementById('ytdlp-status-text');
+        const error = document.getElementById('ytdlp-status-error');
 
         if (status.installed) {
             dot.className = 'status-dot running';
@@ -633,10 +634,12 @@ async function loadStatus() {
             document.getElementById('btn-install-text').textContent = '更新 yt-dlp';
         } else {
             dot.className = 'status-dot stopped';
-            text.textContent = '未安装';
-            document.getElementById('btn-install-text').textContent = '安装 yt-dlp';
+            text.textContent = status.error ? '无法运行' : '未安装';
+            document.getElementById('btn-install-text').textContent = status.error ? '重新安装 yt-dlp' : '安装 yt-dlp';
         }
 
+        error.textContent = status.error || '';
+        error.classList.toggle('hidden', !status.error);
         document.getElementById('ytdlp-version').textContent = status.version || '-';
         document.getElementById('ytdlp-platform').textContent = status.platform || '-';
     } catch (e) {
@@ -668,11 +671,9 @@ document.getElementById('btn-install').addEventListener('click', async () => {
     btn.disabled = true;
     document.getElementById('install-progress').classList.remove('hidden');
 
-    // Save github proxy first
-    const proxy = document.getElementById('github-proxy-select').value;
-    await API.apiPost('/api/settings', { github_proxy: proxy });
-
     try {
+        const proxy = document.getElementById('github-proxy-select').value;
+        await API.apiPost('/api/settings', { github_proxy: proxy });
         // 下载任务可能超过 30s（后端 ExecuteJS 上限），后端采用
         // fire-and-forget 模式：/api/install 立即返回，这里轮询 status。
         const startResp = await API.apiPost('/api/install', {});
@@ -683,10 +684,10 @@ document.getElementById('btn-install').addEventListener('click', async () => {
             throw new Error(result.error || '安装失败');
         }
         showSnackbar('安装成功' + (result.version ? ': ' + result.version : ''));
-        loadStatus();
     } catch (e) {
         showSnackbar('安装失败: ' + e.message);
     } finally {
+        loadStatus();
         btn.disabled = false;
         document.getElementById('install-progress').classList.add('hidden');
     }

@@ -28,6 +28,8 @@ function harness({
   releaseOK = true,
   missingAsset = false,
   proxy = '',
+  libc = '',
+  exists = true,
   runnable = true,
   executionError = false,
 } = {}) {
@@ -52,22 +54,20 @@ function harness({
             tag_name: custom ? `v${version}` : '2026.10.26',
             assets: missingAsset
               ? []
-              : [
-                  {
-                    name: custom
-                      ? 'yt-dlp_musllinux_armv7l'
-                      : {
-                          'linux-amd64': 'yt-dlp_musllinux',
-                          'linux-arm64': 'yt-dlp_musllinux_aarch64',
-                          'darwin-arm64': 'yt-dlp_macos',
-                          'windows-arm64': 'yt-dlp_arm64.exe',
-                        }[platform],
-                    label: custom ? 'yt-dlp 2026.10.26' : null,
-                    browser_download_url: custom
-                      ? `${customBase}/yt-dlp_musllinux_armv7l`
-                      : 'https://github.com/yt-dlp/yt-dlp/upstream-binary',
-                  },
-                ],
+              : custom
+                ? [{
+                    name: 'yt-dlp_musllinux_armv7l',
+                    label: 'yt-dlp 2026.10.26',
+                    browser_download_url: `${customBase}/yt-dlp_musllinux_armv7l`,
+                  }]
+                : [
+                    'yt-dlp_musllinux', 'yt-dlp_linux',
+                    'yt-dlp_musllinux_aarch64', 'yt-dlp_linux_aarch64',
+                    'yt-dlp_macos', 'yt-dlp_arm64.exe',
+                  ].map((name) => ({
+                    name,
+                    browser_download_url: `https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/${name}`,
+                  })),
           }),
       };
     },
@@ -78,13 +78,17 @@ function harness({
       },
       storage: { get: async () => ({ github_proxy: proxy }) },
       command: {
-        exists: async () => true,
+        exists: async () => exists,
         download: async (...args) => downloads.push(args),
         exec: async (...args) => {
           executions.push(args);
           if (args[0] === 'chmod')
             return { exitCode: 0, stdout: '', stderr: '' };
-          if (executionError) throw new Error('no such file or directory');
+          if (args[0] === 'getconf') {
+            if (!libc) throw new Error('program "getconf" not found in plugin bin/ or system PATH');
+            return { exitCode: 0, stdout: libc, stderr: '' };
+          }
+          if (executionError) throw new Error(executionError);
           return {
             exitCode: runnable ? 0 : 1,
             stdout: runnable ? '2026.10.26\n' : '',
@@ -156,6 +160,70 @@ for (const platform of [
   });
 }
 
+for (const [platform, suffix] of [['linux-amd64', ''], ['linux-arm64', '_aarch64']]) {
+  for (const [libc, asset] of [['glibc 2.36\n', 'yt-dlp_linux'], ['', 'yt-dlp_musllinux']]) {
+    test(`${platform} selects a compatible release asset (${asset})`, async () => {
+      const { api, downloads } = harness({ platform, libc });
+      const expectedAsset = asset + suffix;
+      assert.match((await api.getLatestRelease()).downloadUrl, new RegExp(`/${expectedAsset}$`));
+      assert.match((await api.getBinaryInfo()).downloadUrl, new RegExp(`/${expectedAsset}$`));
+      assert.equal((await api.downloadBinary()).success, true);
+      assert.match(downloads[0][0], new RegExp(`/${expectedAsset}$`));
+    });
+  }
+}
+
+test('the glibc manual download link stays compatible when release metadata is unavailable', async () => {
+  const { api } = harness({ platform: 'linux-amd64', libc: 'glibc 2.36', releaseOK: false });
+  assert.equal(
+    (await api.getBinaryInfo()).downloadUrl,
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux',
+  );
+});
+
+const launchError = 'commandExec: run: fork/exec /app/data/jsplugins_data/ytdlp/bin/yt-dlp: no such file or directory';
+
+test('an existing binary whose loader cannot be started is reported as unusable', async () => {
+  const { api, executions } = harness({ executionError: launchError });
+  const status = await api.getStatus();
+  assert.equal(status.installed, false);
+  assert.equal(status.version, '');
+  assert.match(status.error, /运行库/);
+  assert.ok(status.error.includes(launchError));
+  assert.equal(executions.length, 1);
+});
+
+test('status distinguishes a missing file from a usable installation', async () => {
+  const missing = harness({ exists: false });
+  const missingStatus = await missing.api.getStatus();
+  assert.equal(missingStatus.installed, false);
+  assert.equal(missingStatus.error, undefined);
+  assert.equal(missing.executions.length, 0);
+
+  const { api } = harness();
+  const readyStatus = await api.getStatus();
+  assert.equal(readyStatus.installed, true);
+  assert.equal(readyStatus.version, '2026.10.26');
+  assert.equal(readyStatus.error, undefined);
+});
+
+test('the reported ELF loader path is shown when the host provides it', async () => {
+  const loader = 'ELF interpreter "/lib/ld-musl-x86_64.so.1" not found';
+  const { api } = harness({
+    executionError: `${launchError} (${loader} — the binary may require glibc but this system uses musl)`,
+  });
+  const status = await api.getStatus();
+  assert.ok(status.error.endsWith(loader));
+});
+
+test('an import launch failure points to reinstalling yt-dlp in plugin settings', async () => {
+  const { api } = harness({ executionError: launchError });
+  await assert.rejects(
+    () => api.execYtdlp(['--dump-json', 'bilisearch5:单车'], 300000),
+    (error) => /插件设置.*重新安装/.test(error.message) && error.message.includes(launchError),
+  );
+});
+
 test('a missing ARM asset fails before any download', async () => {
   const { api, downloads } = harness({ missingAsset: true });
   const result = await api.downloadBinary();
@@ -164,12 +232,20 @@ test('a missing ARM asset fails before any download', async () => {
   assert.equal(downloads.length, 0);
 });
 
-for (const options of [{ runnable: false }, { executionError: true }]) {
+for (const options of [{ runnable: false }, { executionError: launchError }]) {
   test(`non-runnable binary is rejected for download and upload: ${JSON.stringify(options)}`, async () => {
     const { api } = harness(options);
-    assert.equal((await api.downloadBinary()).success, false);
+    const download = await api.downloadBinary();
+    assert.equal(download.success, false);
+    assert.match(download.error, /运行库/);
     await api.startUpload(1);
     await api.appendUploadChunk('AA==');
-    assert.equal((await api.finalizeUpload()).success, false);
+    const upload = await api.finalizeUpload();
+    assert.equal(upload.success, false);
+    assert.match(upload.error, /运行库/);
+    if (options.executionError) {
+      assert.ok(download.error.includes(launchError));
+      assert.ok(upload.error.includes(launchError));
+    }
   });
 }

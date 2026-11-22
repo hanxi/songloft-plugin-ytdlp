@@ -22,3 +22,11 @@
 - Done right：新增回归旧代码失败 9 项；最终全套 31 项通过，类型检查、QuickJS 构建及校验通过。Docker Chrome 操作真实隔离宿主，验证运行中取消、自动暂停后取消、清除与新批次；SQLite 确认当前歌曲落地、队列歌曲仍 remote。证据 `/tmp/songloft-544-cancel/`。初版音频夹具仅 4 秒，触发现有 30 秒校验下限；最终使用 40 秒自生成音频及受控解析器。
 - Not run：玩客云真机、ARMv7 本轮运行、真实第三方站点；尚未提交、推送或发布。
 - Seen 1× (2026-11-02)。
+
+## BIN-001：Linux 二进制选择须检查宿主 libc
+
+- 范围：Linux x86-64 / ARM64 的 yt-dlp 安装与诊断。[hanxi/songloft-plugin-ytdlp#9](https://github.com/hanxi/songloft-plugin-ytdlp/issues/9)，插件基线 `85687d23e90a34784bdcca4012cda1d1135f5eea`。
+- 证据：正式版 `v2026.10.28.0` 在 Debian 12 x86-64 上对已落盘的上游 musl 包报 `fork/exec … no such file or directory`，设置页同时报告「已安装」且无版本。ELF 指定的 `/lib/ld-musl-x86_64.so.1` 在该宿主不存在；Alpine 3.24.1 上执行 glibc 包也复现缺失加载器。报告人的设备和文件来源仍待确认。
+- 正确示例：在 Songloft 服务端通过 `getconf GNU_LIBC_VERSION` 识别 glibc，自动安装与手动下载链接共用资产选择。设置页按 `--version` 是否成功显示可用状态，宿主报告缺失的 ELF 加载器时显示具体路径。
+- 验证：旧源码未通过 7 项回归，修复后 40 项测试、类型检查、QuickJS 构建和校验通过。Docker Chrome 在真实本地 Songloft 宿主点击「重新安装 yt-dlp」，用本地代理夹具提供经 SHA-256 校验的上游 glibc 包，回读版本 `2026.10.26` 与落盘哈希。Alpine 非 root 执行上游 musl 包同样返回该版本。B 站「单车」联机搜索曾返回 HTTP 412，复测返回 5 条结果，均导入临时歌单并核对入库。
+- Seen 1× (2026-11-22)。

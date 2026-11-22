@@ -8,13 +8,22 @@ import { version as pluginVersion } from '../package.json';
 interface PlatformAsset {
   file: string;
   url: string;
+  glibcUrl?: string;
   repository?: string;
   tag?: string;
 }
 
 const PLATFORM_ASSETS: Record<string, PlatformAsset> = {
-  'linux-amd64': { file: 'yt-dlp', url: 'yt-dlp_musllinux' },
-  'linux-arm64': { file: 'yt-dlp', url: 'yt-dlp_musllinux_aarch64' },
+  'linux-amd64': {
+    file: 'yt-dlp',
+    url: 'yt-dlp_musllinux',
+    glibcUrl: 'yt-dlp_linux',
+  },
+  'linux-arm64': {
+    file: 'yt-dlp',
+    url: 'yt-dlp_musllinux_aarch64',
+    glibcUrl: 'yt-dlp_linux_aarch64',
+  },
   // Go reports GOARCH=arm on armv7l. This single-file build includes Python.
   'linux-arm': {
     file: 'yt-dlp',
@@ -30,7 +39,7 @@ const PLATFORM_ASSETS: Record<string, PlatformAsset> = {
 
 let detectedPlatform = '';
 
-export function getBinName(): string {
+function getBinName(): string {
   const asset = PLATFORM_ASSETS[detectedPlatform];
   return asset?.file || 'yt-dlp';
 }
@@ -49,32 +58,69 @@ export async function detectPlatform(): Promise<string> {
   return detectedPlatform;
 }
 
-export async function isInstalled(): Promise<boolean> {
-  const binName = getBinName();
-  return await songloft.command.exists(binName);
+async function getPlatformAsset(platform: string): Promise<PlatformAsset | undefined> {
+  const asset = PLATFORM_ASSETS[platform];
+  if (!asset?.glibcUrl) return asset;
+  try {
+    const result = await songloft.command.exec('getconf', ['GNU_LIBC_VERSION'], {
+      timeout: 2000,
+    });
+    if (result.exitCode === 0 && /^glibc\s/.test(result.stdout.trim())) {
+      return { ...asset, url: asset.glibcUrl };
+    }
+  } catch {
+    // getconf is optional on musl systems and minimal images.
+  }
+  return asset;
 }
 
-export async function getVersion(): Promise<string> {
-  const binName = getBinName();
+const REINSTALL_HINT =
+  '请在插件设置中重新安装 yt-dlp，并检查服务器架构、运行库和执行权限';
+
+export async function execYtdlp(args: string[], timeout: number) {
   try {
-    const result = await songloft.command.exec(binName, ['--version'], {
-      timeout: 5000,
-    });
-    return result.exitCode === 0 ? result.stdout.trim() : '';
-  } catch {
-    return '';
+    return await songloft.command.exec(getBinName(), args, { timeout });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (detail.includes('not found in plugin bin/ or system PATH')) {
+      throw new Error(`找不到 yt-dlp，请在插件设置中安装 yt-dlp。\n${detail}`);
+    }
+    if (
+      /no such file or directory|permission denied|exec format error|not a valid win32 application/i.test(detail)
+    ) {
+      const interpreter = detail.match(/ELF interpreter "[^"]+" not found/)?.[0];
+      throw new Error(`无法启动 yt-dlp。${REINSTALL_HINT}。\n${interpreter || detail}`);
+    }
+    throw error;
   }
+}
+
+async function probeVersion(): Promise<string> {
+  const result = await execYtdlp(['--version'], 5000);
+  const version = result.stdout.trim();
+  if (result.exitCode !== 0 || !version) {
+    const detail = result.stderr.trim() || `--version 退出码为 ${result.exitCode}`;
+    throw new Error(`yt-dlp 版本检查失败。${REINSTALL_HINT}。\n${detail}`);
+  }
+  return version;
 }
 
 export async function getStatus(): Promise<{
   installed: boolean;
   version: string;
   platform: string;
+  error?: string;
 }> {
   const platform = await detectPlatform();
-  const installed = await isInstalled();
-  const version = installed ? await getVersion() : '';
-  return { installed, version, platform };
+  const exists = await songloft.command.exists(getBinName());
+  if (!exists) return { installed: false, version: '', platform };
+
+  try {
+    return { installed: true, version: await probeVersion(), platform };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { installed: false, version: '', platform, error: detail };
+  }
 }
 
 interface ReleaseInfo {
@@ -96,14 +142,10 @@ function releaseURL(asset: PlatformAsset, api: boolean): string {
   return `https://github.com/${repository}/releases/${release}/${asset.url}`;
 }
 
-export async function getLatestRelease(): Promise<{
+async function fetchRelease(asset: PlatformAsset): Promise<{
   version: string;
   downloadUrl: string;
 } | null> {
-  const platform = await detectPlatform();
-  const asset = PLATFORM_ASSETS[platform];
-  if (!asset) return null;
-
   try {
     const resp = await fetch(releaseURL(asset, true), {
       headers: { Accept: 'application/vnd.github.v3+json' },
@@ -124,6 +166,11 @@ export async function getLatestRelease(): Promise<{
   } catch {
     return null;
   }
+}
+
+export async function getLatestRelease() {
+  const asset = await getPlatformAsset(await detectPlatform());
+  return asset ? fetchRelease(asset) : null;
 }
 
 function applyGithubProxy(url: string, proxy: string): string {
@@ -185,12 +232,12 @@ export async function getBinaryInfo(): Promise<{
   version: string;
 }> {
   const platform = await detectPlatform();
-  const asset = PLATFORM_ASSETS[platform];
+  const asset = await getPlatformAsset(platform);
   if (!asset) {
     return { platform, binName: 'yt-dlp', downloadUrl: '', version: '' };
   }
 
-  const release = await getLatestRelease();
+  const release = await fetchRelease(asset);
   const settings = await getSettings();
   const rawUrl = release?.downloadUrl || releaseURL(asset, false);
   const downloadUrl = applyGithubProxy(rawUrl, settings.github_proxy);
@@ -248,13 +295,8 @@ export async function finalizeUpload(): Promise<{
       });
     }
 
-    const version = await getVersion();
-    if (!version) {
-      throw new Error(
-        'yt-dlp 上传后无法运行，请检查二进制的平台、运行库与执行权限',
-      );
-    }
-    logInfo(`[install] yt-dlp 手动上传成功: ${version || '未知版本'}`);
+    const version = await probeVersion();
+    logInfo(`[install] yt-dlp 手动上传成功: ${version}`);
     return { success: true, version };
   } catch (e: any) {
     logError(`[install] yt-dlp 上传失败: ${e?.message || String(e)}`);
@@ -268,12 +310,12 @@ export async function downloadBinary(): Promise<{
   error?: string;
 }> {
   const platform = await detectPlatform();
-  const asset = PLATFORM_ASSETS[platform];
+  const asset = await getPlatformAsset(platform);
   if (!asset) {
     return { success: false, error: `Unsupported platform: ${platform}` };
   }
 
-  const release = await getLatestRelease();
+  const release = await fetchRelease(asset);
   if (!release) {
     return {
       success: false,
@@ -301,16 +343,11 @@ export async function downloadBinary(): Promise<{
       });
     }
 
-    const version = await getVersion();
-    if (!version) {
-      throw new Error(
-        'yt-dlp 安装后无法运行，请检查二进制的平台、运行库与执行权限',
-      );
-    }
-    logInfo(`[install] yt-dlp 安装成功: ${version || '未知版本'}`);
+    const version = await probeVersion();
+    logInfo(`[install] yt-dlp 安装成功: ${version}`);
     return { success: true, version };
   } catch (e: any) {
     logError(`[install] yt-dlp 安装失败: ${e?.message || String(e)}`);
-    return { success: false, error: e.message };
+    return { success: false, error: e?.message || String(e) };
   }
 }

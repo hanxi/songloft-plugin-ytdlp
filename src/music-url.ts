@@ -2,7 +2,7 @@
 
 import type { HTTPRequest } from '@songloft/plugin-sdk';
 import { jsonResponse } from '@songloft/plugin-sdk';
-import { getBinName } from './binary';
+import { execYtdlp } from './binary';
 import { buildCommonArgs, getSettings } from './settings';
 import { logInfo, logError } from './logger';
 import type { YtdlpSourceData } from './types';
@@ -79,7 +79,6 @@ export async function musicUrlHandler(req: HTTPRequest) {
     // sd.url 已是权威地址（分 P 视频带 ?p=N），直接使用；缺失时才按 platform+id 重建。
     const targetUrl = sd.url || reconstructUrl(sd.platform, sd.id);
 
-    const binName = getBinName();
     const settings = await getSettings();
     const commonArgs = await buildCommonArgs();
 
@@ -91,7 +90,7 @@ export async function musicUrlHandler(req: HTTPRequest) {
       targetUrl,
     ];
 
-    const result = await songloft.command.exec(binName, args, { timeout: 30000 });
+    const result = await execYtdlp(args, 30000);
     if (result.exitCode !== 0) {
       const err = result.stderr.trim();
       logError(`[music/url] 解析失败 ${sd.platform}:${sd.id} exitCode=${result.exitCode} stderr=${err}`);

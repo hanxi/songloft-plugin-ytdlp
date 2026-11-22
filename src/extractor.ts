@@ -1,6 +1,6 @@
 /// <reference types="@songloft/plugin-sdk" />
 
-import { getBinName } from './binary';
+import { execYtdlp } from './binary';
 import { buildCommonArgs } from './settings';
 import { logInfo, logError } from './logger';
 import type { ExtractedItem, ExtractResult } from './types';
@@ -13,12 +13,11 @@ function bilibiliPartUrl(base: string, part: number): string {
 }
 
 export async function extractFromURL(url: string): Promise<ExtractResult> {
-  const binName = getBinName();
   const commonArgs = await buildCommonArgs();
 
   // Bilibili direct video URL → use pagelist API to expand multi-part videos
   if (/bilibili\.com\/video\/(BV\w+|av\d+)/i.test(url)) {
-    return extractBilibiliVideo(url, binName, commonArgs);
+    return extractBilibiliVideo(url, commonArgs);
   }
 
   const args = [
@@ -29,7 +28,7 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
   ];
 
   logInfo(`[extractor] 提取: ${url}`);
-  const result = await songloft.command.exec(binName, args, { timeout: 300000 });
+  const result = await execYtdlp(args, 300000);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
@@ -42,7 +41,7 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
   const platform = items.length > 0 ? items[0].platform : 'unknown';
 
   // Resolve real titles for flat playlist entries that only have fallback titles
-  await resolveItemTitles(items, binName, commonArgs);
+  await resolveItemTitles(items, commonArgs);
 
   // 过滤掉不可播放的条目（频道页等 duration=0 的）
   const playableItems = items.filter(item => item.duration > 0);
@@ -60,7 +59,6 @@ export async function extractFromURL(url: string): Promise<ExtractResult> {
  */
 async function extractBilibiliVideo(
   url: string,
-  binName: string,
   commonArgs: string[],
 ): Promise<ExtractResult> {
   // Step 1: Get video info (thumbnail, uploader, etc.) via yt-dlp --no-playlist
@@ -72,7 +70,7 @@ async function extractBilibiliVideo(
   ];
 
   songloft.log.info(`[extractor] yt-dlp 获取 Bilibili 视频信息: ${url}`);
-  const infoResult = await songloft.command.exec(binName, infoArgs, { timeout: 30000 });
+  const infoResult = await execYtdlp(infoArgs, 30000);
 
   if (infoResult.exitCode !== 0) {
     throw new Error(parseYtdlpError(infoResult.stderr.trim()));
@@ -222,7 +220,6 @@ function parseNDJSON(stdout: string): ExtractedItem[] {
  */
 async function resolveItemTitles(
   items: ExtractedItem[],
-  binName: string,
   commonArgs: string[],
 ): Promise<void> {
   // Only resolve items whose title looks like a fallback (Bilibili av/BV-number format, or equals the id)
@@ -263,7 +260,7 @@ async function resolveItemTitles(
           ...commonArgs,
           item.url,
         ];
-        const result = await songloft.command.exec(binName, args, { timeout: 30000 });
+        const result = await execYtdlp(args, 30000);
         if (result.exitCode !== 0) {
           songloft.log.warn(`[extractor] 解析标题失败 ${item.url}: ${result.stderr.trim().slice(0, 200)}`);
           return;

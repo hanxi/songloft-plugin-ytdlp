@@ -1,7 +1,7 @@
 /// <reference types="@songloft/plugin-sdk" />
 
 import type { HTTPRequest } from '@songloft/plugin-sdk';
-import { getBinName } from './binary';
+import { execYtdlp } from './binary';
 import { buildCommonArgs, getSettings } from './settings';
 import { pickThumbnail } from './extractor';
 import type { YtdlpSourceData } from './types';
@@ -29,7 +29,6 @@ export async function toponeHandler(req: HTTPRequest) {
 
   if (!keyword) return jsonResp({ code: 400, msg: '缺少 keyword', data: null }, 400);
 
-  const binName = getBinName();
   const commonArgs = await buildCommonArgs();
   const settings = await getSettings();
 
@@ -42,9 +41,9 @@ export async function toponeHandler(req: HTTPRequest) {
     `${platform}${count}:${keyword}`,
   ];
 
-  songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword} ${binName} ${searchArgs}`);
-  const searchResult = await songloft.command.exec(binName, searchArgs, { timeout: 60000 });
-  songloft.log.info(`[search/topone] yt-dlp 搜索结果: ${searchResult.stdout}`);  
+  songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword} ${searchArgs}`);
+  const searchResult = await execYtdlp(searchArgs, 60000);
+  songloft.log.info(`[search/topone] yt-dlp 搜索结果: ${searchResult.stdout}`);
 
   if (searchResult.exitCode !== 0) {
     songloft.log.warn(`[search/topone] yt-dlp 搜索失败: ${searchResult.stderr.trim().slice(0, 300)}`);
@@ -108,7 +107,7 @@ export async function toponeHandler(req: HTTPRequest) {
         targetUrl,
       ];
 
-      const urlResult = await songloft.command.exec(binName, urlArgs, { timeout: 30000 });
+      const urlResult = await execYtdlp(urlArgs, 30000);
       if (urlResult.exitCode !== 0) {
         lastError = urlResult.stderr.trim().slice(0, 300);
         continue;

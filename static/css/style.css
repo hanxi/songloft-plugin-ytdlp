@@ -300,6 +300,10 @@
 .progress-stats { font-size: 13px; color: var(--md-on-surface-variant); margin-top: 6px; display: flex; gap: 12px; }
 .success-text { color: var(--md-success, #4caf50); }
 .error-text { color: var(--md-error); }
+#ytdlp-status-error {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
 
 /* Status Dot */
 .status-dot {

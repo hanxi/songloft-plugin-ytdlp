@@ -27,6 +27,8 @@ https://raw.githubusercontent.com/hanxi/songloft-plugin-ytdlp/main/registry.json
 3. Click Extract to load the track list.
 4. Choose Import Only or Import and Download.
 
+On Linux x86-64 and ARM64, automatic installation and the manual download link select an upstream binary based on the server's libc. If the settings page reports that yt-dlp cannot run, select **Reinstall yt-dlp** and check the error details below the status.
+
 In Download Management, pause, resume, or cancel a batch. Cancellation stops queued tracks and retries. An in-flight track finishes before the batch stops, with Cancelling shown in the meantime. Downloaded files are retained. Clear the finished batch to start another.
 
 ### ARMv7 / Alpine
