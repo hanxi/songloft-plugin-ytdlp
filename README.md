@@ -55,12 +55,14 @@ pnpm run typecheck
 
 ### 发布
 
-在 GitHub Actions 手动运行 `Release Plugin`，版本号留空时遵循 MIOT 插件规则：按北京时间生成 `Y.M.D.N`，每日从 `.0` 开始，根据全部已有标签（含预发布）按数字递增；同日存在旧三段版本时从 `.1` 开始，避免相等版本；旧版本使用未来日期时先沿用该日期，避免降级。也可显式填写合法四段版本。`prerelease` 默认关闭（正式发布），需要预发布时手动开启；标签为 `vY.M.D.N`，不覆盖已有 Release。
+推送到 `main` 后，`Release Plugin` 按主线顺序给每个待发布的代码提交单独打包。纯文档提交和自动生成的版本提交会跳过。失败后可在 GitHub Actions 手动运行同一个工作流，从未完成的提交继续。首次启用以工作流中的 `RELEASE_BASE_SHA` 为边界，之后以 `plugin.json.releaseSource` 记录已发布源码。
+
+版本号按北京时间生成 `YYYY.M.D.N`，每日从 `.0` 开始，同日按所有标签（含预发布）的最大序号递增。标签带 `v`。若同日已有三段日期版本，从 `.1` 开始。已经分配的标签保留。手动运行时可指定下一笔正式版的版本，也可开启 `prerelease` 为当前主线生成预发布包。
 
 流程拆成两个 workflow：
 
-1. `Release Plugin` 完成插件检查、构建并立即创建 Release，上传 `ytdlp.jsplugin.zip`、包内同源 `plugin.json` 和插件校验和 `SHA256SUMS`。
-2. `Build yt-dlp ARMv7` 由成功完成的发布 workflow 异步触发，通过发布上下文绑定准确的 Release 标签与源码提交。它解析 yt-dlp 最新正式版标签、检出源码，用固定 Python Alpine 镜像和上游锁定的 Python 依赖，通过官方 PyInstaller 入口构建 `linux/arm/v7` 单文件。无 Python、uid=1000 的 Alpine 3.24 容器验证版本、提取器、真实 HTTP 下载和 HTTPS 解析后，追加附件到同一个 Release，并更新说明中的 ARM 状态。
+1. `Release Plugin` 在隔离的 Git 工作树中安装锁定依赖，检查、测试并打包。每个标签指向对应源码加版本元数据的快照。Release 包含 `ytdlp.jsplugin.zip`、包内同源 `plugin.json` 和 `SHA256SUMS`，正式版随后更新主线清单。
+2. `Build yt-dlp ARMv7` 根据发布工作流交接的标签和源码提交异步构建。一次推送产生多个 Release 时，每个 Release 都会获得独立构建。它解析 yt-dlp 最新正式版标签、检出源码，用固定 Python Alpine 镜像和上游锁定的 Python 依赖，通过官方 PyInstaller 入口构建 `linux/arm/v7` 单文件。无 Python、uid=1000 的 Alpine 3.24 容器验证版本、提取器、真实 HTTP 下载和 HTTPS 解析后，追加附件到对应的 Release，并更新说明中的 ARM 状态。
 
 ARM 构建不阻塞插件发布；失败不撤销已发布插件。可在 `Build yt-dlp ARMv7` 中手动填写已有 Release 的标签重跑，成功后补齐：
 

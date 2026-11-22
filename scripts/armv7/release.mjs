@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isReleaseVersion } from '../release-version.mjs';
+import { releaseSource } from '../release-plugin.mjs';
 
 export function updateStatus(body, message) {
   const section = `<!-- armv7-status:start -->\n${message}\n<!-- armv7-status:end -->`;
@@ -26,6 +27,36 @@ function json(value) {
   return JSON.stringify(value, null, 2) + '\n';
 }
 
+export function resolveRelease(repository, tag, expectedSource, request = gh) {
+  if (!tag?.startsWith('v') || !isReleaseVersion(tag.slice(1))) {
+    throw new Error('Invalid release tag');
+  }
+  const release = JSON.parse(
+    request('release', 'view', tag, '--json', 'isDraft,body,assets'),
+  );
+  if (release.isDraft) throw new Error('Cannot attach to a draft');
+
+  const commit = JSON.parse(request('api', `repos/${repository}/commits/${tag}`));
+  const source = releaseSource(release.body) || commit.sha;
+  if (
+    !/^[a-f0-9]{40}$/.test(commit.sha) ||
+    (source !== commit.sha && commit.parents?.[0]?.sha !== source) ||
+    (expectedSource && source !== expectedSource)
+  ) {
+    throw new Error('Release tag does not match source');
+  }
+  const attached = new Set(release.assets.filter((asset) => asset.size > 0).map((asset) => asset.name));
+  const skip = Boolean(expectedSource && [
+    'yt-dlp_musllinux_armv7l',
+    'yt-dlp-LICENSE',
+    'yt-dlp-THIRD_PARTY_LICENSES.txt',
+    'yt-dlp-python-requirements.txt',
+    'yt-dlp-build.json',
+    'yt-dlp-SHA256SUMS',
+  ].every((file) => attached.has(file)));
+  return { tag, source, skip };
+}
+
 function main(mode) {
   const {
     GITHUB_REPOSITORY,
@@ -39,33 +70,11 @@ function main(mode) {
     GITHUB_RUN_ID,
   } = process.env;
   if (mode === 'resolve') {
-    const context = INPUT_TAG
-      ? { tag: INPUT_TAG }
-      : JSON.parse(
-          readFileSync('release-context/release-context.json', 'utf8'),
-        );
-    if (
-      !isReleaseVersion(context.tag?.slice(1) || '') ||
-      !context.tag.startsWith('v')
-    )
-      throw new Error('Invalid release tag');
-    if (RELEASE_SOURCE && context.pluginCommit !== RELEASE_SOURCE)
-      throw new Error('Release source mismatch');
-    const release = JSON.parse(
-      gh('release', 'view', context.tag, '--json', 'isDraft,targetCommitish'),
-    );
-    if (release.isDraft) throw new Error('Cannot attach to a draft');
-    const commit = gh(
-      'api',
-      `repos/${GITHUB_REPOSITORY}/commits/${context.tag}`,
-      '--jq',
-      '.sha',
-    );
-    if (
-      !/^[a-f0-9]{40}$/.test(commit) ||
-      (context.pluginCommit && context.pluginCommit !== commit)
-    )
-      throw new Error('Release tag does not match source');
+    const context = resolveRelease(GITHUB_REPOSITORY, INPUT_TAG, RELEASE_SOURCE);
+    if (context.skip) {
+      appendFileSync(GITHUB_OUTPUT, 'skip=true\n');
+      return;
+    }
     const version = gh(
       'api',
       'repos/yt-dlp/yt-dlp/releases/latest',
@@ -76,7 +85,7 @@ function main(mode) {
       throw new Error('Invalid upstream version');
     appendFileSync(
       GITHUB_OUTPUT,
-      `tag=${context.tag}\nplugin_commit=${commit}\nytdlp_version=${version}\n`,
+      `tag=${context.tag}\nplugin_commit=${context.source}\nytdlp_version=${version}\n`,
     );
   } else if (mode === 'info') {
     const sourceCommit = run('git', [

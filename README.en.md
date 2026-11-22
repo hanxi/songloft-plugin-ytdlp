@@ -53,12 +53,14 @@ pnpm run typecheck
 
 ### Releases
 
-Manually run `Release Plugin` in GitHub Actions. An empty version follows MIOT's rules: Beijing time, `Y.M.D.N`, starting at `.0` each day and increasing numerically across all existing tags, including prereleases. If a legacy three-part tag exists on that date, start at `.1` to avoid an equal version. A future current-version date is preserved until the clock catches up, avoiding a downgrade. An explicit valid four-part version is also accepted. `prerelease` defaults to disabled (stable release); enable it manually for a prerelease. Tags use `vY.M.D.N`. Existing Releases are never overwritten.
+Push to `main` to have `Release Plugin` package each pending code commit in mainline order. Documentation-only commits and generated version commits are skipped. After a failure, run the same workflow manually in GitHub Actions to resume from the unfinished commit. The workflow uses `RELEASE_BASE_SHA` as its initial activation boundary and then tracks which source was published in `plugin.json.releaseSource`.
+
+Versions use Beijing time and the `YYYY.M.D.N` format. Each day starts at `.0`, and the sequence increases from the highest tag for the day, including prereleases. Tags carry a `v` prefix. If a legacy three-part tag exists on that date, start at `.1`. Allocated tags are retained. Manual runs can set the version for the next stable package or enable `prerelease` to package the current main branch as a preview.
 
 There are two workflows:
 
-1. `Release Plugin` checks and builds the plugin, then immediately creates the Release with `ytdlp.jsplugin.zip`, its matching `plugin.json`, and plugin checksums in `SHA256SUMS`.
-2. `Build yt-dlp ARMv7` starts asynchronously after the release workflow succeeds. A release context binds it to the exact tag and source commit. It resolves the latest stable upstream yt-dlp tag once and builds a `linux/arm/v7` single-file executable using a pinned Python Alpine image, upstream pinned Python dependencies, and the official PyInstaller entry point. A clean Alpine 3.24 container without Python, running as uid=1000, checks the version, extractors, real HTTP download, and HTTPS extraction. Passing assets are attached to the same Release, and its ARM status is updated.
+1. `Release Plugin` installs locked dependencies in an isolated Git worktree, checks and tests the plugin, and builds the package. Each tag points to the corresponding source snapshot with its version metadata. The Release includes `ytdlp.jsplugin.zip`, the manifest from that ZIP, and `SHA256SUMS`. Stable releases then update the main-branch manifest.
+2. `Build yt-dlp ARMv7` runs asynchronously using the tag and source commit recorded by the release workflow. When a push creates multiple Releases, each receives its own build. It resolves the latest stable upstream yt-dlp tag once and builds a `linux/arm/v7` single-file executable using a pinned Python Alpine image, upstream pinned Python dependencies, and the official PyInstaller entry point. A clean Alpine 3.24 container without Python, running as uid=1000, checks the version, extractors, real HTTP download, and HTTPS extraction. Passing assets are attached to the corresponding Release, and its ARM status is updated.
 
 The ARM build does not block plugin publishing, and failures do not retract the plugin Release. To retry, manually run `Build yt-dlp ARMv7` with an existing Release tag. A successful build adds:
 

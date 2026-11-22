@@ -1,111 +1,71 @@
 name: Release Plugin
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.mdx'
+      - 'docs/**'
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（留空按北京时间自动生成 Y.M.D.N，末位从 0 递增）'
+        description: '可选版本号，适用于下一笔正式发布或本次预发布（Y.M.D.N）'
         required: false
         default: ''
       prerelease:
-        description: '预发布，不更新正式插件源清单'
+        description: '为当前主线生成预发布包'
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 concurrency:
   group: release-plugin
+  queue: max
   cancel-in-progress: false
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-
-      - name: Install dependencies and check plugin
-        run: |
-          pnpm install
-          pnpm run typecheck
-          pnpm test
-
-      - name: Resolve plugin version
-        id: version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Build, verify and publish each pending commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Activation boundary only; later runs use plugin.json.releaseSource.
+          RELEASE_BASE_SHA: 55fce95241c387f416e5902c4bb8f078e11ba311
           INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          VERSION=$(node scripts/release-version.mjs)
-          TAG="v${VERSION}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; use a new version" >&2
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_CONTEXT_FILE: ${{ runner.temp }}/ytdlp-release-context.json
+          RELEASE_ARTIFACTS_DIR: ${{ runner.temp }}/ytdlp-release-assets
+        run: node scripts/release-plugin.mjs
 
-      - name: Build matching plugin and release manifest
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          node scripts/prepare-release.mjs
-          pnpm test
-          pnpm run build
-          mkdir -p release-assets
-          cp dist/ytdlp.jsplugin.zip release-assets/
-          unzip -p dist/ytdlp.jsplugin.zip plugin.json > release-assets/plugin.json
-          node scripts/release-info.mjs
-          cd release-assets
-          sha256sum ytdlp.jsplugin.zip plugin.json > SHA256SUMS
+      - name: Pass published release identities to the asynchronous ARM build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-contexts-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ytdlp-release-context.json
+          if-no-files-found: ignore
 
       - name: Preserve verified release assets
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ytdlp-${{ steps.version.outputs.version }}
-          path: release-assets/
+          name: ytdlp-release-assets-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ytdlp-release-assets/
+          if-no-files-found: ignore
           compression-level: 0
-
-      - name: Create plugin release without waiting for ARM build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
-        run: |
-          FLAGS=()
-          if [ "$PRERELEASE" = true ]; then
-            FLAGS+=(--prerelease --latest=false)
-          fi
-          gh release create "$TAG" \
-            release-assets/ytdlp.jsplugin.zip \
-            release-assets/plugin.json release-assets/SHA256SUMS \
-            --target "$GITHUB_SHA" --title "$TAG" \
-            --notes-file release-assets/release-notes.md "${FLAGS[@]}"
-
-      - name: Pass release identity to asynchronous ARM build
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-context
-          path: release-assets/release-context.json
-
-      - name: Update stable registry manifest
-        if: ${{ !inputs.prerelease }}
-        run: |
-          cp release-assets/plugin.json plugin.json
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add plugin.json package.json
-          git diff --staged --quiet || git commit -m "chore(release): 更新至 ${{ steps.version.outputs.tag }}"
-          git push origin HEAD:main
