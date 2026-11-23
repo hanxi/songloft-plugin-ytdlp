@@ -33,6 +33,12 @@ Automatic installation checks the downloaded file size and runs the new binary t
 
 In Download Management, pause, resume, or cancel a batch. Cancellation stops queued tracks and retries. An in-flight track finishes before the batch stops, with Cancelling shown in the meantime. Downloaded files are retained. Clear the finished batch to start another.
 
+### Smart speaker search source
+
+The search test in Settings looks up a track and checks whether yt-dlp can resolve a direct audio URL. If the provider requires sign-in, the test prompts you to configure cookies. When smart speaker search results are imported, the speaker plugin can fetch track details first and let Songloft resolve the audio during playback. Direct playback without importing still requires a direct audio URL from the search source.
+
+Callers that can import plugin-sourced tracks can send `X-Songloft-Resolve-Url: false` to `POST /api/search/topone`. The fast response includes `plugin_entry_path` and `source_data` and omits `url`. The plugin attempts full resolution when the search result lacks enough metadata to import. By default, the endpoint returns a direct audio URL.
+
 ### ARMv7 / Alpine
 
 - ARMv7 (`armv7l`, reported by Songloft as `linux-arm`) uses `yt-dlp_musllinux_armv7l` from this plugin repository's matching Release. Python is bundled. The binary targets Alpine / musl; ARMv6 and glibc systems are not supported.

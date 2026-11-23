@@ -35,6 +35,12 @@ Linux x86-64 和 ARM64 的自动安装与手动下载链接会根据服务器的
 
 在「下载管理」中可暂停、恢复或取消批次。取消会停止后续歌曲和重试；当前已开始的单首下载会继续到结束，期间显示「取消中」。已下载文件保留，批次结束后可清除记录并开始新批次。
 
+### 智能音箱搜索源
+
+设置页「搜索测试」会搜索歌曲并验证能否取得音频直链。如果服务要求登录，测试会提示配置 Cookies。智能音箱启用搜索结果入库时，可以先取得歌曲信息，播放时由 Songloft 解析音频；「不入库直接播放」仍需要搜索源当场取得直链。
+
+调用 `POST /api/search/topone` 时，能导入插件歌曲的调用方可以发送 `X-Songloft-Resolve-Url: false`。快速结果携带 `plugin_entry_path` 和 `source_data`，省略 `url`。如果搜索结果缺少可导入的元数据，插件会继续尝试完整解析。默认请求返回音频直链。
+
 ### ARMv7 / Alpine
 
 - ARMv7（`armv7l`，Songloft 平台字段为 `linux-arm`）使用本插件仓库同版本 Release 中的 `yt-dlp_musllinux_armv7l`，内置 Python，适用于 Alpine / musl；不支持 ARMv6 或 glibc 系统。

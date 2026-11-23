@@ -475,7 +475,7 @@ function extractPlaylistTitle(stdout: string): string {
   return '';
 }
 
-function parseYtdlpError(stderr: string): string {
+export function parseYtdlpError(stderr: string): string {
   if (stderr.includes('is not a valid URL') || stderr.includes('Unsupported URL')) {
     return '不支持的 URL 格式';
   }

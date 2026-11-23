@@ -38,3 +38,11 @@ Keep synchronized with [Chinese](LESSONS.md). Shared host rules are in the paren
 - Scope: yt-dlp baseline `55fce95241c387f416e5902c4bb8f078e11ba311` before automatic publishing. The old workflow handed off a single Release. When one push can publish several packages, record each tag and source commit and preserve the published entries if a later commit fails.
 - Verification: local tests simulated a batch push, a later build failure, and a rejected metadata push. Published packages remained in the ARMv7 handoff, and reruns reconnected to the existing Release. The ARM resolver checks the tag snapshot against its original source. A real frozen-dependency build against a temporary Git remote verified the tag, ZIP manifest, SHA-256, main branch, and handoff. GitHub publishing and the ARM build were not run.
 - Seen 1× (2026-11-22).
+
+## SEARCH-001: A search deadline must cover candidate audio resolution
+
+- The behavior baselines for yt-dlp `topone` and smart speaker external search are `1b298ffd` and `4ad8d22`, respectively. [hanxi/songloft-plugin-ytdlp#9](https://github.com/hanxi/songloft-plugin-ytdlp/issues/9#issuecomment-7096351116)
+- The reporter could import tracks for “单车” while both search tests timed out. With a 1-second flat search and 31-second audio resolution in a real Songloft host, the published plugins reproduced the 6-second speaker timeout and the host’s 30-second HTTP 504.
+- Callers that can import can request track details first and let playback resolve the audio URL and headers. Callers requiring a direct URL can verify audio resolution with one deadline for the search and all candidates. An explicit upstream sign-in challenge prompts for cookies.
+- On Linux x86-64 with host `0ed7f396`, the speaker test returned in about 1.1 seconds. Importing the result and requesting playback sent the required Referer and returned the complete fixture MP3. Docker Chrome verified direct URL resolution in about 32 seconds and the cookie prompt. The reporter’s ARM64 setup and physical speaker are pending verification.
+- Seen 1× (2026-11-23).

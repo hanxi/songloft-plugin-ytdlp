@@ -7,33 +7,35 @@ const API = window.SongloftPlugin || { apiGet: (p) => fetch(p).then(r => r.json(
 // 提取/搜索会跑 yt-dlp 展开歌单，radio/mix 无限歌单可能 >30s，放宽宿主调用超时到 5min，
 // 与插件侧 command.exec 的 300s 预算对齐，避免撞默认 30s 报 504 plugin call failed。
 const EXTRACT_TIMEOUT_MS = 300000;
+const SEARCH_TEST_TIMEOUT_MS = 60000;
 
-// 提取专用 POST：不走 API.apiPost（宿主注入的 common.js 以 immutable 长缓存分发，旧客户端
-// 可能仍是不带超时头能力的旧版），而是直接 fetch 并显式带上 X-Plugin-Timeout-Ms 头，
-// 保证放宽超时对所有客户端立即生效。auth token 走 API.getAuthToken()（各版本 common.js 都有）。
-async function extractPost(url) {
+// 慢端点通过宿主超时头请求更长预算，认证沿用 common.js。
+async function pluginPost(path, body, timeoutMs) {
     const headers = {
         'Content-Type': 'application/json',
-        'X-Plugin-Timeout-Ms': String(EXTRACT_TIMEOUT_MS),
+        'X-Plugin-Timeout-Ms': String(timeoutMs),
     };
     const token = (API.getAuthToken && API.getAuthToken()) || '';
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    // 相对路径 './api/extract' 相对页面 <base>（/api/v1/jsplugin/ytdlp/）解析，与 common.js 一致。
-    const resp = await fetch('./api/extract', {
+    const resp = await fetch(path, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(body),
     });
     const text = await resp.text();
     if (!resp.ok) {
         let msg = resp.statusText || ('HTTP ' + resp.status);
         try {
             const body = JSON.parse(text);
-            if (body && (body.message || body.error)) msg = body.message || body.error;
+            if (body && (body.msg || body.message || body.error)) msg = body.msg || body.message || body.error;
         } catch (_) { /* 非 JSON 错误体，保留状态文案 */ }
         throw new Error(msg);
     }
     return text ? JSON.parse(text) : {};
+}
+
+function extractPost(url) {
+    return pluginPost('./api/extract', { url }, EXTRACT_TIMEOUT_MS);
 }
 
 // --- State ---
@@ -780,7 +782,7 @@ document.getElementById('search-test-btn').addEventListener('click', async () =>
     result.textContent = '搜索中（可能需要较长时间）...';
 
     try {
-        const resp = await API.apiPost('/api/search/topone', { keyword, quality: '320k' });
+        const resp = await pluginPost('./api/search/topone', { keyword, quality: '320k' }, SEARCH_TEST_TIMEOUT_MS);
         if (resp.code === 0 && resp.data) {
             const d = resp.data;
             result.style.color = 'var(--md-primary)';
@@ -794,7 +796,7 @@ document.getElementById('search-test-btn').addEventListener('click', async () =>
             result.appendChild(link);
         } else {
             result.style.color = 'var(--md-error)';
-            result.textContent = `❌ 未找到结果\n\n${JSON.stringify(resp, null, 2)}`;
+            result.textContent = resp.msg || '未找到结果';
         }
     } catch (e) {
         result.style.color = 'var(--md-error)';

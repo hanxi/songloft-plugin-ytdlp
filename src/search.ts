@@ -3,8 +3,12 @@
 import type { HTTPRequest } from '@songloft/plugin-sdk';
 import { execYtdlp } from './binary';
 import { buildCommonArgs, getSettings } from './settings';
-import { pickThumbnail } from './extractor';
+import { parseYtdlpError, pickThumbnail } from './extractor';
 import type { YtdlpSourceData } from './types';
+
+const DEFAULT_HOST_TIMEOUT_MS = 30000;
+const MAX_HOST_TIMEOUT_MS = 60000;
+const RESPONSE_MARGIN_MS = 2000;
 
 function parseBody(req: HTTPRequest): any {
   if (!req.body) return {};
@@ -22,6 +26,43 @@ function jsonResp(data: any, statusCode = 200) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) };
 }
 
+function getHeader(req: HTTPRequest, name: string): string | undefined {
+  return Object.entries(req.headers ?? {}).find(([key]) => key.toLowerCase() === name)?.[1];
+}
+
+function searchFailure(code: number, msg: string) {
+  return jsonResp({ code, msg, data: null });
+}
+
+function searchTimeout() {
+  return searchFailure(504, 'yt-dlp 搜索或解析音频超时，请检查网络、代理或减少搜索结果数量');
+}
+
+function searchHit(item: any, metadata: any, sourceUrl: string, audioUrl?: string) {
+  const sourceData: YtdlpSourceData = {
+    platform: (metadata.extractor_key || metadata.extractor || metadata.ie_key ||
+      item.extractor_key || item.extractor || item.ie_key || 'youtube').toLowerCase(),
+    id: metadata.id || item.id || '',
+    url: sourceUrl,
+  };
+  return jsonResp({
+    code: 0,
+    msg: 'success',
+    data: {
+      title: metadata.title || metadata.track || item.title || item.track || '',
+      artist: metadata.artist || metadata.uploader || metadata.creator || metadata.channel ||
+        item.artist || item.uploader || item.creator || item.channel || '',
+      album: metadata.album || item.album || '',
+      duration: Math.round(metadata.duration || item.duration || 0),
+      cover_url: pickThumbnail(metadata) || pickThumbnail(item),
+      url: audioUrl,
+      source_data: sourceData,
+      // 宿主播放时借此调用 /api/music/url，取得新鲜直链及 Referer 等请求头。
+      plugin_entry_path: 'ytdlp',
+    },
+  });
+}
+
 export async function toponeHandler(req: HTTPRequest) {
   const body = parseBody(req);
   const keyword = String(body.keyword || '').trim();
@@ -29,6 +70,13 @@ export async function toponeHandler(req: HTTPRequest) {
 
   if (!keyword) return jsonResp({ code: 400, msg: '缺少 keyword', data: null }, 400);
 
+  const timeoutHeader = getHeader(req, 'x-plugin-timeout-ms')?.trim() ?? '';
+  const requestedTimeout = /^\+?\d+$/.test(timeoutHeader) ? Number(timeoutHeader) : NaN;
+  const hostTimeout = Number.isSafeInteger(requestedTimeout)
+    ? Math.min(MAX_HOST_TIMEOUT_MS, Math.max(DEFAULT_HOST_TIMEOUT_MS, requestedTimeout))
+    : DEFAULT_HOST_TIMEOUT_MS;
+  const deadline = Date.now() + hostTimeout - RESPONSE_MARGIN_MS;
+  const resolveUrl = getHeader(req, 'x-songloft-resolve-url') !== 'false';
   const commonArgs = await buildCommonArgs();
   const settings = await getSettings();
 
@@ -41,13 +89,20 @@ export async function toponeHandler(req: HTTPRequest) {
     `${platform}${count}:${keyword}`,
   ];
 
-  songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword} ${searchArgs}`);
-  const searchResult = await execYtdlp(searchArgs, 60000);
-  songloft.log.info(`[search/topone] yt-dlp 搜索结果: ${searchResult.stdout}`);
-
+  const searchBudget = deadline - Date.now();
+  if (searchBudget <= 0) return searchTimeout();
+  songloft.log.info(`[search/topone] yt-dlp 搜索: ${keyword}`);
+  let searchResult: Awaited<ReturnType<typeof execYtdlp>>;
+  try {
+    searchResult = await execYtdlp(searchArgs, searchBudget);
+  } catch (error) {
+    return searchFailure(502, error instanceof Error ? error.message : String(error));
+  }
+  if (Date.now() >= deadline) return searchTimeout();
   if (searchResult.exitCode !== 0) {
-    songloft.log.warn(`[search/topone] yt-dlp 搜索失败: ${searchResult.stderr.trim().slice(0, 300)}`);
-    return jsonResp({ code: 404, msg: 'search failed', data: null });
+    const message = parseYtdlpError(searchResult.stderr.trim()).slice(0, 300);
+    songloft.log.warn(`[search/topone] yt-dlp 搜索失败: ${message}`);
+    return searchFailure(502, message);
   }
 
   const lines = searchResult.stdout.trim().split('\n').filter(l => l.trim());
@@ -87,17 +142,25 @@ export async function toponeHandler(req: HTTPRequest) {
     }
   }
 
-  if (candidates.length === 0) {
-    return jsonResp({ code: 404, msg: 'song not found', data: null });
-  }
-
   candidates.sort((a, b) => b.score - a.score);
+
+  if (!resolveUrl) {
+    for (const { item } of candidates) {
+      const targetUrl = item.webpage_url || item.url || '';
+      if (item.id && (item.title || item.track) && /^https?:\/\//i.test(targetUrl)) {
+        return searchHit(item, item, targetUrl);
+      }
+    }
+    // 部分平台的平铺结果没有标题，继续走完整解析以取得可导入的元数据。
+  }
 
   let lastError = '';
   for (const { item } of candidates) {
     const targetUrl = item.webpage_url || item.url || '';
     if (!targetUrl) continue;
 
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return searchTimeout();
     try {
       const urlArgs = [
         '-f', settings.audio_quality || 'bestaudio',
@@ -107,9 +170,15 @@ export async function toponeHandler(req: HTTPRequest) {
         targetUrl,
       ];
 
-      const urlResult = await execYtdlp(urlArgs, 30000);
+      const urlResult = await execYtdlp(urlArgs, remaining);
+      if (Date.now() >= deadline) return searchTimeout();
       if (urlResult.exitCode !== 0) {
-        lastError = urlResult.stderr.trim().slice(0, 300);
+        const stderr = urlResult.stderr.trim();
+        lastError = parseYtdlpError(stderr).slice(0, 300);
+        if (/sign in to confirm[^\n]*not a bot/i.test(stderr)) {
+          songloft.log.warn(`[search/topone] 音频解析失败: ${lastError}`);
+          return searchFailure(502, lastError);
+        }
         continue;
       }
 
@@ -127,40 +196,20 @@ export async function toponeHandler(req: HTTPRequest) {
         const bestFormat = metadata.formats[metadata.formats.length - 1];
         url = bestFormat?.url || '';
       }
-      if (!url || !url.startsWith('http')) continue;
-
-      const platform = (metadata.extractor_key || metadata.extractor || metadata.ie_key || 'youtube').toLowerCase();
-      const sourceData: YtdlpSourceData = {
-        platform,
-        id: metadata.id || item.id || '',
-        url: targetUrl,
-      };
-
-      return jsonResp({
-        code: 0,
-        msg: 'success',
-        data: {
-          title: metadata.title || metadata.track || item.title || item.track || '',
-          artist: metadata.artist || metadata.uploader || metadata.creator || metadata.channel ||
-                  item.artist || item.uploader || item.creator || item.channel || '',
-          album: metadata.album || item.album || '',
-          duration: Math.round(metadata.duration || item.duration || 0),
-          cover_url: pickThumbnail(metadata) || pickThumbnail(item),
-          url,
-          source_data: sourceData,
-          // 声明本结果由 ytdlp 插件提供，供消费方（如 miot）写入歌曲的 plugin_entry_path。
-          // 这样宿主播放时走 IsPluginSourced() 分支：调本插件 /api/music/url 重新解析
-          // 得到带 http_headers（Referer/UA）的新鲜直链并后台缓存到本地，而非直推这条
-          // 会过期且后端不带 Referer 的签名直链（B站 CDN 403，songloft-plugin-miot#101）。
-          // 值须与 plugin.json 的 entryPath 一致，fetcher 据此路由 InvokeHTTP。
-          plugin_entry_path: 'ytdlp',
-        },
-      });
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        lastError = 'yt-dlp 未返回音频直链';
+        continue;
+      }
+      return searchHit(item, metadata, targetUrl, url);
     } catch (e: any) {
       lastError = e.message || String(e);
     }
   }
 
-  songloft.log.warn(`[search/topone] 所有候选 URL 获取均失败，最后错误: ${lastError}`);
-  return jsonResp({ code: 404, msg: 'song not found', data: null });
+  if (Date.now() >= deadline) return searchTimeout();
+  if (lastError) {
+    songloft.log.warn(`[search/topone] 音频解析失败: ${lastError}`);
+    return searchFailure(502, lastError);
+  }
+  return searchFailure(404, '未找到匹配的歌曲');
 }
